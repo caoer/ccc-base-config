@@ -29,9 +29,11 @@ JSON result (in the md run envelope's `data.stdout`):
 { "argv": ["--model", "..."], "layers": ["shared.md", "..."], "model_matched": true, "warnings": [] }
 ```
 
-`model_matched` is true when any model-specific layer file existed — callers that pass a
-selection id as `--model` should drop their own `--model` flag when it's true (the rendered
-argv carries the real one; the renderer fails loud if it wouldn't).
+`model_matched` is true when a layer set a real, non-empty `model:` (so the rendered argv
+carries a real `--model`) — callers that pass a selection id as `--model` should drop their
+own `--model` flag when it's true. A model-layer file that matches but sets no `model:` does
+NOT set it true: the caller's `--model` passes through unchanged (with a warning), so a
+per-model layer can add only tools/prompt/effort without hijacking the model.
 
 ## Layers
 
@@ -117,7 +119,10 @@ type Layer = { path: string; fm: Record<string, unknown>; body: string };
 const parseDoc = (path: string, raw: string): Layer => {
   let fm: Record<string, unknown> = {};
   let body = raw;
-  const m = raw.match(/^---\r?\n([\s\S]*?)\r?\n---(\r?\n|$)/);
+  // The inner `\n` before the closing `---` is optional so an empty-frontmatter
+  // file (`---\n---`) matches to fm="" instead of failing the match and leaking
+  // the literal `---\n---` as body into the append-system-prompt stream.
+  const m = raw.match(/^---\r?\n([\s\S]*?)(?:\r?\n)?---(\r?\n|$)/);
   if (m) {
     body = raw.slice(m[0].length);
     let parsed: unknown;
@@ -195,9 +200,19 @@ for (const rel of candidates) {
   if (layer.body) appendStream.push({ kind: "text", text: layer.body, layer: rel });
 }
 
-const modelMatched = layers.some((l) => modelLayerSet.has(l));
-if (modelMatched && !scalars.has("model"))
-  fail(`model layers matched for '${P.model}' but no layer sets model: — add it (e.g. models/${P.model}.md)`);
+// `model_matched` is the caller's drop-your-`--model` signal: true ONLY when a
+// layer set a real, non-empty model:. A model-layer FILE merely existing is not
+// enough — a per-model layer may legitimately add only tools/prompt/effort and
+// inherit the model from a broader layer, or leave the caller's explicit --model
+// (a real id like `sonnet`) in place. So a matched file without model: passes the
+// caller's --model through (with a warning) instead of failing the whole render.
+const modelFileMatched = layers.some((l) => modelLayerSet.has(l));
+const modelVal = scalars.has("model") ? String(scalars.get("model")).trim() : "";
+if (scalars.has("model") && modelVal === "")
+  fail(`a matched layer set an empty model: value — give a real model id or remove the key`);
+const modelEmitted = modelVal !== "";
+if (modelFileMatched && !modelEmitted)
+  warnings.push(`a model layer for '${P.model}' matched but set no model: — the caller's --model '${P.model}' passes through unchanged`);
 
 const renderedDir = resolve(ROOT, ".rendered");
 const writeRendered = (prefix: string, content: string): string => {
@@ -210,7 +225,7 @@ const writeRendered = (prefix: string, content: string): string => {
 
 const argv: string[] = [];
 const sv = (k: string) => String(scalars.get(k));
-if (scalars.has("model")) argv.push("--model", sv("model"));
+if (modelEmitted) argv.push("--model", modelVal);
 if (scalars.has("effort")) argv.push("--effort", sv("effort"));
 if (scalars.has("name")) argv.push("--name", sv("name"));
 if (scalars.has("agent")) argv.push("--agent", sv("agent"));
@@ -221,7 +236,18 @@ if (scalars.has("tools")) {
 if (lists.has("allowed-tools")) argv.push("--allowed-tools", dedupe(lists.get("allowed-tools")!.map(String)).join(","));
 if (lists.has("add-dir")) argv.push("--add-dir", ...dedupe(lists.get("add-dir")!.map((x) => expandPath(String(x)))));
 if (lists.has("mcp-config"))
-  argv.push("--mcp-config", ...dedupe(lists.get("mcp-config")!.map((x) => (String(x).trimStart().startsWith("{") ? String(x) : expandPath(String(x))))));
+  argv.push(
+    "--mcp-config",
+    ...dedupe(
+      lists.get("mcp-config")!.map((x) =>
+        typeof x === "object" && x !== null
+          ? JSON.stringify(x) // inline map → JSON string (mirror settings), not `<root>/[object Object]`
+          : String(x).trimStart().startsWith("{")
+            ? String(x)
+            : expandPath(String(x)),
+      ),
+    ),
+  );
 if (scalars.has("settings")) {
   const v = scalars.get("settings");
   argv.push("--settings", typeof v === "object" ? JSON.stringify(v) : String(v).trimStart().startsWith("{") ? String(v) : expandPath(String(v)));
@@ -257,7 +283,7 @@ if (P.output === "shell") {
   console.log(argv.map(q).join(" "));
   for (const w of warnings) console.error(`warn: ${w}`);
 } else {
-  console.log(JSON.stringify({ argv, layers, model_matched: modelMatched, warnings }, null, 2));
+  console.log(JSON.stringify({ argv, layers, model_matched: modelEmitted, warnings }, null, 2));
 }
 ```
 
