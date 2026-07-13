@@ -7,5 +7,7 @@
 # system-prompt-file: ~/.local/share/ucc/shared/SYSTEM_PROMPT.md
 # add-dir: [~/shared-notes]
 # allowed-tools: ["Bash(git *)"]
+model: claude-fable-5
+effort: xhigh
 verbose: false
 ---
