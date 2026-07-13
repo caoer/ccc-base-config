@@ -6,7 +6,7 @@
 set -eu
 
 for f in "$HOME"/.local/share/ucc/profiles/*/settings.json; do
-  jq -ce 'del(.model, .verbose)' "$f" > "$f.tmp"
+  jq -e 'del(.model, .verbose)' "$f" > "$f.tmp"
   mv "$f.tmp" "$f"
   echo "cleaned: $f"
 done
