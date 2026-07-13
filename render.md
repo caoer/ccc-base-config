@@ -70,7 +70,7 @@ Semantics notes:
   lift. Both are first-class at every layer.
 - Only `-file` flag forms are ever emitted for prompts: ucc launchers check flag presence
   to decide default injection, so rendered flags suppress the shared defaults cleanly.
-- Paths: `~` expands to `$HOME`; relative paths resolve against this config repo root.
+- Paths: absolute, or relative to this config repo root — no `~` expansion in layer values.
 - Referenced files that don't exist **fail loud** (exit 1) — a typo'd path must not
   silently shrink the prompt. Unknown frontmatter keys are warnings, not errors.
 - `verbose` / `allow-dangerously-skip-permissions` must be YAML booleans; `false` in a more
@@ -81,7 +81,6 @@ Semantics notes:
 import { readFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { resolve, isAbsolute } from "node:path";
 
-const HOME = process.env.HOME ?? "";
 const ROOT = process.cwd(); // md run guarantees: this config repo's toplevel
 
 const P = {
@@ -145,13 +144,7 @@ const SCALARS = new Set(["model", "effort", "name", "agent", "tools", "settings"
 const LISTS = new Set(["add-dir", "allowed-tools", "mcp-config", "extra-args"]);
 const KNOWN = new Set([...SCALARS, ...LISTS, "agents", "system-prompt", "system-prompt-file", "append-system-prompt", "append-system-prompt-file"]);
 
-const expandPath = (v: string): string => {
-  let p = v;
-  if (p === "~") p = HOME;
-  else if (p.startsWith("~/")) p = HOME + p.slice(1);
-  if (!isAbsolute(p)) p = resolve(ROOT, p);
-  return p;
-};
+const expandPath = (v: string): string => (isAbsolute(v) ? v : resolve(ROOT, v));
 const dedupe = (xs: string[]) => [...new Set(xs)];
 const asArray = (v: unknown): unknown[] => (Array.isArray(v) ? v : [v]);
 

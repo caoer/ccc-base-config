@@ -4,7 +4,7 @@
 # Key vocabulary + merge rules: see render.md.
 #
 # Examples:
-# system-prompt-file: ~/.local/share/ucc/shared/SYSTEM_PROMPT.md
-# add-dir: [~/shared-notes]
+# system-prompt-file: /Users/caoer115/.local/share/ucc/shared/SYSTEM_PROMPT.md
+# add-dir: [/Users/caoer115/shared-notes]
 # allowed-tools: ["Bash(git *)"]
 ---
