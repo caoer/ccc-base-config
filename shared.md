@@ -7,4 +7,5 @@
 # system-prompt-file: ~/.local/share/ucc/shared/SYSTEM_PROMPT.md
 # add-dir: [~/shared-notes]
 # allowed-tools: ["Bash(git *)"]
+verbose: false
 ---
