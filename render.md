@@ -12,9 +12,11 @@ argv and launch however they like.
 ## Usage
 
 ```
-md run '{"file":"~/.local/share/ucc/config/render.md","name":"render","format":"json",
+md run '{"file":"'"$HOME"'/.local/share/ucc/config/render.md","name":"render","format":"json",
          "model":"claude-opus-4-8-xhigh","profile":"blusher-83savvy","project":"/Users/Shared/projects/caoer/meridian"}'
 ```
+
+(`md run` does not expand `~` — the path must be absolute, hence the `$HOME` splice.)
 
 - All params optional — each absent param skips its layers; none → `shared.md` only.
 - `model` is a **selection id** (ccc-models convention: no dots, optional `-{effort}` suffix).
