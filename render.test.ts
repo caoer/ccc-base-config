@@ -303,4 +303,26 @@ describe('render.md renderer', () => {
     expect(r.json!.warnings.join(' ')).toContain("only meaningful on roles/<role>.md");
   });
 
+  test('promoted model-selection with no matching model file fails loud', () => {
+    const r = runRender(
+      { 'shared.md': fm(''), 'roles/leader.md': fm('model-selection: ghost') },
+      { role: 'leader' },
+    );
+    expect(r.exitCode).toBe(1);
+    expect(r.stderr).toContain("model-selection 'ghost' resolved no real model");
+  });
+
+  test('promoted model-selection whose model layer sets no model: fails loud', () => {
+    const r = runRender(
+      {
+        'shared.md': fm(''),
+        'roles/leader.md': fm('model-selection: sel'),
+        'models/sel.md': fm('effort: high'),
+      },
+      { role: 'leader' },
+    );
+    expect(r.exitCode).toBe(1);
+    expect(r.stderr).toContain('resolved no real model');
+  });
+
 });

@@ -27,7 +27,8 @@ md run '{"file":"~/.local/share/ucc/config/render.md","name":"render","format":"
   `roles/<role>.md`, and that file's `model-selection:` key (a **selection id**) becomes the
   `model` param when the caller passed none — so a role can default to a full model layer
   stack (model + prompts + effort) without duplicating it. An explicit `model` param always
-  wins over the role's `model-selection`.
+  wins over the role's `model-selection`. A promoted `model-selection` that resolves no real
+  `model:` (missing/typo'd model layer) **fails loud** — it must not silently shrink the stack.
 - `output: shell` prints one shell-quoted line instead of JSON — for copy-paste.
 
 JSON result (in the md run envelope's `data.stdout`):
@@ -137,6 +138,7 @@ const parseDoc = (path: string, raw: string): Layer => {
 // model value) when the caller passed none — so a role defaults to the full model
 // layer stack without duplicating it. An explicit model param always wins.
 const roleRel = P.role ? `roles/${P.role}.md` : undefined;
+let modelFromRole = false;
 if (roleRel) {
   const abs = resolve(ROOT, roleRel);
   if (existsSync(abs)) {
@@ -144,7 +146,7 @@ if (roleRel) {
     if (sel !== undefined && sel !== null) {
       const s = String(sel).trim();
       if (s === "") fail(`${roleRel}: model-selection is empty — give a selection id or remove the key`);
-      if (!P.model) P.model = s;
+      if (!P.model) { P.model = s; modelFromRole = true; }
     }
   }
 }
@@ -243,6 +245,13 @@ const modelVal = scalars.has("model") ? String(scalars.get("model")).trim() : ""
 if (scalars.has("model") && modelVal === "")
   fail(`a matched layer set an empty model: value — give a real model id or remove the key`);
 const modelEmitted = modelVal !== "";
+// A role's model-selection is a promise to pull in a real model layer. If a
+// promoted selection resolved NO real model: (missing models/<id>.md, or a
+// matched layer that set only tools/effort), that silently shrinks the whole
+// stack — exactly what the fail-loud discipline forbids. Scoped to promotion:
+// a caller-supplied --model may legitimately pass through without a layer (below).
+if (modelFromRole && !modelEmitted)
+  fail(`${roleRel}: model-selection '${P.model}' resolved no real model: — add models/${P.model}.md (or a layer that sets model:) or fix the selection id`);
 if (modelFileMatched && !modelEmitted)
   warnings.push(`a model layer for '${P.model}' matched but set no model: — the caller's --model '${P.model}' passes through unchanged`);
 
