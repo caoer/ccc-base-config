@@ -36,7 +36,7 @@ interface RunResult {
   promptFiles: Record<string, string>;
 }
 
-function runRender(files: Files, params: { model?: string; profile?: string; project?: string; output?: string }): RunResult {
+function runRender(files: Files, params: { model?: string; profile?: string; project?: string; role?: string; output?: string }): RunResult {
   const root = mkdtempSync(join(tmpdir(), 'render-fix-'));
   try {
     for (const [rel, content] of Object.entries(files)) {
@@ -48,6 +48,7 @@ function runRender(files: Files, params: { model?: string; profile?: string; pro
     if (params.model) env.MD_PARAM_MODEL = params.model;
     if (params.profile) env.MD_PARAM_PROFILE = params.profile;
     if (params.project) env.MD_PARAM_PROJECT = params.project;
+    if (params.role) env.MD_PARAM_ROLE = params.role;
     if (params.output) env.MD_PARAM_OUTPUT = params.output;
     const proc = Bun.spawnSync(['bun', scriptPath], { cwd: root, env, stdout: 'pipe', stderr: 'pipe' });
     const stdout = proc.stdout.toString();
@@ -236,4 +237,70 @@ describe('render.md renderer', () => {
     expect(r.json!.layers).toContain('projects/-x-y-z/any.md');
     expect(r.json!.argv).toEqual(['--name', 'hit']);
   });
+
+  test('role layer composes between shared and model layers', () => {
+    const r = runRender(
+      {
+        'shared.md': fm(''),
+        'roles/leader.md': fm('effort: high'),
+        'models/m.md': fm('model: real-m'),
+      },
+      { role: 'leader', model: 'm' },
+    );
+    expect(r.json!.layers).toEqual(['shared.md', 'roles/leader.md', 'models/m.md']);
+    expect(r.json!.argv).toEqual(['--model', 'real-m', '--effort', 'high']);
+  });
+
+  test('role model-selection promotes the full model layer stack when no model param', () => {
+    const r = runRender(
+      {
+        'shared.md': fm(''),
+        'roles/leader.md': fm('model-selection: claude-fable-5'),
+        'models/claude-fable-5.md': fm('model: claude-fable-5'),
+      },
+      { role: 'leader' },
+    );
+    expect(r.json!.layers).toContain('models/claude-fable-5.md');
+    expect(r.json!.argv).toEqual(['--model', 'claude-fable-5']);
+    expect(r.json!.model_matched).toBe(true);
+  });
+
+  test('explicit model param beats the role model-selection', () => {
+    const r = runRender(
+      {
+        'shared.md': fm(''),
+        'roles/leader.md': fm('model-selection: claude-fable-5'),
+        'models/claude-fable-5.md': fm('model: claude-fable-5'),
+        'models/other.md': fm('model: real-other'),
+      },
+      { role: 'leader', model: 'other' },
+    );
+    expect(r.json!.layers).not.toContain('models/claude-fable-5.md');
+    expect(r.json!.argv).toEqual(['--model', 'real-other']);
+  });
+
+  test('role param with no roles/<role>.md is a no-op', () => {
+    const r = runRender({ 'shared.md': fm('name: base') }, { role: 'worker' });
+    expect(r.json!.layers).toEqual(['shared.md']);
+    expect(r.json!.argv).toEqual(['--name', 'base']);
+  });
+
+  test('empty model-selection fails loud', () => {
+    const r = runRender(
+      { 'shared.md': fm(''), 'roles/leader.md': fm('model-selection: ""') },
+      { role: 'leader' },
+    );
+    expect(r.exitCode).toBe(1);
+    expect(r.stderr).toContain('model-selection is empty');
+  });
+
+  test('model-selection outside roles/ is ignored with a warning', () => {
+    const r = runRender(
+      { 'shared.md': fm('model-selection: claude-fable-5\nname: base') },
+      {},
+    );
+    expect(r.json!.argv).toEqual(['--name', 'base']);
+    expect(r.json!.warnings.join(' ')).toContain("only meaningful on roles/<role>.md");
+  });
+
 });

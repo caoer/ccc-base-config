@@ -1,6 +1,6 @@
 ---
 md-render: "[[render#^render]]"
-md-render-params: "model, profile, project, output"
+md-render-params: "model, profile, project, role, output"
 ---
 
 # Launch Config Renderer
@@ -23,6 +23,11 @@ md run '{"file":"~/.local/share/ucc/config/render.md","name":"render","format":"
   It names the layer files; the actual `--model` value comes from a layer's `model:` key.
 - `project` takes a real path (flattened internally: every non-alphanumeric → `-`,
   Claude Code's own projects-dir convention) or an already-flattened name.
+- `role` is the agent role (`advisor`/`leader`/`worker`, ccc-tmux's `--role`). It selects
+  `roles/<role>.md`, and that file's `model-selection:` key (a **selection id**) becomes the
+  `model` param when the caller passed none — so a role can default to a full model layer
+  stack (model + prompts + effort) without duplicating it. An explicit `model` param always
+  wins over the role's `model-selection`.
 - `output: shell` prints one shell-quoted line instead of JSON — for copy-paste.
 
 JSON result (in the md run envelope's `data.stdout`):
@@ -44,11 +49,12 @@ Least → most specific; most specific wins. `any.md` in a scope dir = that scop
 | # | File | Scope |
 |---|------|-------|
 | 0 | `shared.md` | global base — every launch |
-| 1 | `models/<selection-id>.md` | one model |
-| 2 | `profiles/<profile>/any.md` | one profile, any model |
-| 3 | `profiles/<profile>/models/<selection-id>.md` | one profile, one model |
-| 4 | `projects/<flattened-path>/any.md` | one project, any model |
-| 5 | `projects/<flattened-path>/<selection-id>.md` | one project, one model |
+| 1 | `roles/<role>.md` | one agent role, any model |
+| 2 | `models/<selection-id>.md` | one model |
+| 3 | `profiles/<profile>/any.md` | one profile, any model |
+| 4 | `profiles/<profile>/models/<selection-id>.md` | one profile, one model |
+| 5 | `projects/<flattened-path>/any.md` | one project, any model |
+| 6 | `projects/<flattened-path>/<selection-id>.md` | one project, one model |
 
 ## Aspect file format
 
@@ -59,6 +65,7 @@ Frontmatter = claude CLI options (long names, no `--`). Body = system-prompt app
 | `model` `effort` `name` `agent` `tools` `settings` `verbose` `prompt-suggestions` `allow-dangerously-skip-permissions` | scalar — most specific layer wins |
 | `add-dir` `allowed-tools` `mcp-config` | list — union across layers (scalar values allowed, coerced to one-element lists) |
 | `extra-args` | list — plain concatenation, emitted verbatim at the end (escape hatch for flags the renderer doesn't know) |
+| `model-selection` | role-layer only — a **selection id** (not a model value) promoted to the `model` param when the caller passed none; ignored with a warning on any other layer |
 | `agents` | map — merge by agent name; later layer replaces same-named agent |
 | `system-prompt` / `system-prompt-file` | one unit, override — most specific layer wins; always emitted as `--system-prompt-file` (inline text is written under `.rendered/`) |
 | `append-system-prompt` / `append-system-prompt-file` + **body** | append stream — concatenates in layer order; emitted as one `--append-system-prompt-file` (single-file streams pass the file through untouched) |
@@ -88,6 +95,7 @@ const P = {
   model: process.env.MD_PARAM_MODEL,
   profile: process.env.MD_PARAM_PROFILE,
   project: process.env.MD_PARAM_PROJECT,
+  role: process.env.MD_PARAM_ROLE,
   output: process.env.MD_PARAM_OUTPUT ?? "json",
 };
 
@@ -100,22 +108,6 @@ if (P.output !== "json" && P.output !== "shell") fail(`output must be json or sh
 
 const flat = (p: string) => p.replace(/[^a-zA-Z0-9]/g, "-");
 const project = P.project ? (P.project.includes("/") ? flat(P.project) : P.project) : undefined;
-
-const candidates: string[] = ["shared.md"];
-if (P.model) candidates.push(`models/${P.model}.md`);
-if (P.profile) candidates.push(`profiles/${P.profile}/any.md`);
-if (P.profile && P.model) candidates.push(`profiles/${P.profile}/models/${P.model}.md`);
-if (project) candidates.push(`projects/${project}/any.md`);
-if (project && P.model) candidates.push(`projects/${project}/${P.model}.md`);
-const modelLayerSet = new Set(
-  P.model
-    ? [
-        `models/${P.model}.md`,
-        P.profile ? `profiles/${P.profile}/models/${P.model}.md` : "",
-        project ? `projects/${project}/${P.model}.md` : "",
-      ].filter(Boolean)
-    : [],
-);
 
 type Layer = { path: string; fm: Record<string, unknown>; body: string };
 const parseDoc = (path: string, raw: string): Layer => {
@@ -141,9 +133,42 @@ const parseDoc = (path: string, raw: string): Layer => {
   return { path, fm, body: body.trim() };
 };
 
+// Role pre-pass: roles/<role>.md may promote a model SELECTION (a layer name, not a
+// model value) when the caller passed none — so a role defaults to the full model
+// layer stack without duplicating it. An explicit model param always wins.
+const roleRel = P.role ? `roles/${P.role}.md` : undefined;
+if (roleRel) {
+  const abs = resolve(ROOT, roleRel);
+  if (existsSync(abs)) {
+    const sel = parseDoc(roleRel, readFileSync(abs, "utf8")).fm["model-selection"];
+    if (sel !== undefined && sel !== null) {
+      const s = String(sel).trim();
+      if (s === "") fail(`${roleRel}: model-selection is empty — give a selection id or remove the key`);
+      if (!P.model) P.model = s;
+    }
+  }
+}
+
+const candidates: string[] = ["shared.md"];
+if (roleRel) candidates.push(roleRel);
+if (P.model) candidates.push(`models/${P.model}.md`);
+if (P.profile) candidates.push(`profiles/${P.profile}/any.md`);
+if (P.profile && P.model) candidates.push(`profiles/${P.profile}/models/${P.model}.md`);
+if (project) candidates.push(`projects/${project}/any.md`);
+if (project && P.model) candidates.push(`projects/${project}/${P.model}.md`);
+const modelLayerSet = new Set(
+  P.model
+    ? [
+        `models/${P.model}.md`,
+        P.profile ? `profiles/${P.profile}/models/${P.model}.md` : "",
+        project ? `projects/${project}/${P.model}.md` : "",
+      ].filter(Boolean)
+    : [],
+);
+
 const SCALARS = new Set(["model", "effort", "name", "agent", "tools", "settings", "verbose", "prompt-suggestions", "allow-dangerously-skip-permissions"]);
 const LISTS = new Set(["add-dir", "allowed-tools", "mcp-config", "extra-args"]);
-const KNOWN = new Set([...SCALARS, ...LISTS, "agents", "system-prompt", "system-prompt-file", "append-system-prompt", "append-system-prompt-file"]);
+const KNOWN = new Set([...SCALARS, ...LISTS, "agents", "system-prompt", "system-prompt-file", "append-system-prompt", "append-system-prompt-file", "model-selection"]);
 
 const expandPath = (v: string): string => {
   let p = v;
@@ -176,6 +201,11 @@ for (const rel of candidates) {
     }
     if (v === null || v === undefined) {
       warnings.push(`${rel}: key '${k}' has no value — ignored`);
+      continue;
+    }
+    if (k === "model-selection") {
+      // consumed by the role pre-pass; meaningless anywhere else
+      if (rel !== roleRel) warnings.push(`${rel}: 'model-selection' is only meaningful on roles/<role>.md — ignored`);
       continue;
     }
     if (k === "verbose" || k === "allow-dangerously-skip-permissions") {
