@@ -19,6 +19,7 @@
 
 import { readFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { resolve, isAbsolute } from "node:path";
+import { createHash } from "node:crypto";
 
 // ─── Context: what the launcher tells us ────────────────────────────────────
 export type Ctx = {
@@ -107,7 +108,9 @@ export function select(ctx: Ctx, note: (why: string) => void): Config {
 // RENDER — Config → harness argv. Machinery; rarely touched.
 // ═══════════════════════════════════════════════════════════════════════════
 
-const ROOT = import.meta.dir;
+// node ≥23.6 runs this file as-is (native type stripping); keep it free of
+// Bun-only APIs so the ucc shared node and bun are both valid runtimes.
+const ROOT = import.meta.dirname;
 const HOME = process.env.HOME ?? "";
 
 const fail = (msg: string): never => {
@@ -133,7 +136,7 @@ const mustExist = (p: string, what: string): string => {
 const writeRendered = (prefix: string, content: string): string => {
   const dir = resolve(ROOT, ".rendered");
   mkdirSync(dir, { recursive: true });
-  const h = new Bun.CryptoHasher("sha256").update(content).digest("hex").slice(0, 12);
+  const h = createHash("sha256").update(content).digest("hex").slice(0, 12);
   const path = resolve(dir, `${prefix}-${h}.md`);
   writeFileSync(path, content);
   return path;
