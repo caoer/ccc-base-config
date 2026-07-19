@@ -76,16 +76,19 @@ export function select(ctx: Ctx, note: (why: string) => void): Config {
     note(`role=${ctx.role}: +skill ccc-base, +roles/${ctx.role}.md`);
   }
 
-  // profile fleets: accounts that run the standard split — fable for the
-  // thinking roles (advisor, leader, handled by the role fallback below),
-  // opus-1m for workers.
+  // profile fleets: two named rosters that split the standard fleet. FABLE_FLEET
+  // runs the full fable arm for the thinking roles (advisor, leader) and opus-1m
+  // for its workers; OPUS_1M_FLEET runs opus-1m for every role. A profile in
+  // neither roster — or an empty FABLE_FLEET — falls through to opus-1m too.
   const OPUS_1M = "claude-opus-4-8[1m]";
   const FABLE_FLEET = new Set([
     "blusher-83savvy",
+    "grid-mullein1b",
+  ]);
+  const OPUS_1M_FLEET = new Set([
     "dewiest_gulp",
     "monk0foreleg",
     "colder_therapy0i",
-    "grid-mullein1b",
     "vows_yogic_9k",
     "crusted_standby_0n",
   ]);
@@ -106,13 +109,21 @@ export function select(ctx: Ctx, note: (why: string) => void): Config {
     // fable quota spent on this account — every role runs opus-1m
     opus(OPUS_1M);
     note(`profile=does_bannock_6u, no model: ${c.model} (fable quota spent)`);
-  } else if (ctx.role === "worker" && ctx.profile && FABLE_FLEET.has(ctx.profile)) {
-    opus(OPUS_1M);
-    note(`profile=${ctx.profile} role=worker, no model: ${c.model}`);
-  } else if (ctx.role === "leader" || ctx.role === "advisor") {
-    // no model requested: leaders and advisors run the full fable arm
+  } else if (
+    (ctx.role === "advisor" || ctx.role === "leader") &&
+    ctx.profile &&
+    FABLE_FLEET.has(ctx.profile)
+  ) {
+    // FABLE_FLEET thinking roles run the full fable arm
     fable();
-    note(`role=${ctx.role}, no model: fable arm`);
+    note(`profile=${ctx.profile} role=${ctx.role}, no model: fable arm (FABLE_FLEET)`);
+  } else if (ctx.role) {
+    // every other fleet launch — FABLE_FLEET workers, all of OPUS_1M_FLEET, and
+    // any unlisted profile — runs opus-1m
+    opus(OPUS_1M);
+    const fleet =
+      ctx.profile && OPUS_1M_FLEET.has(ctx.profile) ? "OPUS_1M_FLEET" : "default";
+    note(`profile=${ctx.profile ?? "?"} role=${ctx.role}, no model: ${c.model} (${fleet})`);
   }
 
   // codex profile: its endpoint speaks gpt ids;
