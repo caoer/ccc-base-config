@@ -50,7 +50,7 @@ export type Append = { file: string } | { text: string };
 export function select(ctx: Ctx, note: (why: string) => void): Config {
   const c: Config = {
     // base: every launch — Fable 5 at xhigh, the harness's own base prompt
-    model: "claude-fable-5",
+    //    model: "claude-fable-5",
     effort: "xhigh",
     verbose: false,
     skills: [],
@@ -93,11 +93,11 @@ export function select(ctx: Ctx, note: (why: string) => void): Config {
     note(`role=${ctx.role}, no model: fable arm`);
   }
 
-  // codex profile: its endpoint speaks gpt ids; keep the harness base prompt
+  // codex profile: its endpoint speaks gpt ids;
   if (ctx.profile === "codex") {
-    c.model = "gpt-5.6";
+    c.model = "gpt-5.6[1m]";
     c.effort = "xhigh";
-    c.systemPromptFile = undefined;
+    c.systemPromptFile = "prompts/SYSTEM_PROMPT.fable.md";
     note(`profile=codex: ${c.model} ${c.effort}`);
   }
 
@@ -146,30 +146,53 @@ export function renderClaude(c: Config): string[] {
   const argv: string[] = [];
 
   if (c.model !== undefined) {
-    if (!c.model.trim()) fail("selection produced an empty model — set a real id or leave model undefined");
+    if (!c.model.trim())
+      fail(
+        "selection produced an empty model — set a real id or leave model undefined",
+      );
     argv.push("--model", c.model);
   }
   if (c.effort) argv.push("--effort", c.effort);
-  if (c.systemPromptFile) argv.push("--system-prompt-file", mustExist(c.systemPromptFile, "system prompt file"));
+  if (c.systemPromptFile)
+    argv.push(
+      "--system-prompt-file",
+      mustExist(c.systemPromptFile, "system prompt file"),
+    );
 
   // Skill preload: ONE startup directive at the head of the append stream.
   // Claude Code has no preload flag — the Skill tool on turn one is the load path.
   const pieces: Append[] = [...c.append];
-  const skills = [...new Set(c.skills.map((s) => s.trim().replace(/^\/+/, "")).filter(Boolean))];
+  const skills = [
+    ...new Set(
+      c.skills.map((s) => s.trim().replace(/^\/+/, "")).filter(Boolean),
+    ),
+  ];
   if (skills.length > 0) {
     const list = skills.map((s) => `/${s}`).join(", ");
-    pieces.unshift({ text: `<session-startup>\nBefore anything else, load these skills for this session: ${list}\n</session-startup>` });
+    pieces.unshift({
+      text: `<session-startup>\nBefore anything else, load these skills for this session: ${list}\n</session-startup>`,
+    });
   }
 
   if (pieces.length === 1 && "file" in pieces[0]) {
     // a lone file passes through untouched
-    argv.push("--append-system-prompt-file", mustExist(pieces[0].file, "append file"));
+    argv.push(
+      "--append-system-prompt-file",
+      mustExist(pieces[0].file, "append file"),
+    );
   } else if (pieces.length > 0) {
     const text = pieces
-      .map((p) => ("text" in p ? p.text.trim() : readFileSync(mustExist(p.file, "append file"), "utf8").trim()))
+      .map((p) =>
+        "text" in p
+          ? p.text.trim()
+          : readFileSync(mustExist(p.file, "append file"), "utf8").trim(),
+      )
       .filter(Boolean)
       .join("\n\n");
-    argv.push("--append-system-prompt-file", writeRendered("append", text + "\n"));
+    argv.push(
+      "--append-system-prompt-file",
+      writeRendered("append", text + "\n"),
+    );
   }
 
   if (c.verbose === true) argv.push("--verbose");
@@ -181,7 +204,9 @@ export function renderCodex(_c: Config): string[] {
   // Seam for the native codex CLI. Nothing routes here yet — the `codex` ucc
   // profile drives the claude harness against a codex endpoint. Map model /
   // effort / prompts to codex flags here when a native codex launch lands.
-  return fail("harness=codex: render not implemented — fill in renderCodex() in launch.ts");
+  return fail(
+    "harness=codex: render not implemented — fill in renderCodex() in launch.ts",
+  );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -200,17 +225,31 @@ function parseCtx(args: string[]): { ctx: Ctx; output: "json" | "shell" } {
       } catch (e) {
         fail(`invalid JSON param: ${e}`);
       }
-    } else fail(`unrecognized argument '${a}' — pass a JSON object or --flag value pairs`);
+    } else
+      fail(
+        `unrecognized argument '${a}' — pass a JSON object or --flag value pairs`,
+      );
   }
   const pick = (k: string): string | undefined =>
-    flags[k] ?? (typeof json[k] === "string" && json[k] !== "" ? (json[k] as string) : undefined);
+    flags[k] ??
+    (typeof json[k] === "string" && json[k] !== ""
+      ? (json[k] as string)
+      : undefined);
 
   const harness = pick("harness") ?? "claude";
-  if (harness !== "claude" && harness !== "codex") fail(`unknown harness '${harness}' — claude or codex`);
+  if (harness !== "claude" && harness !== "codex")
+    fail(`unknown harness '${harness}' — claude or codex`);
   const output = pick("output") ?? "json";
-  if (output !== "json" && output !== "shell") fail(`output must be json or shell, got '${output}'`);
+  if (output !== "json" && output !== "shell")
+    fail(`output must be json or shell, got '${output}'`);
   return {
-    ctx: { harness, model: pick("model"), profile: pick("profile"), project: pick("project"), role: pick("role") },
+    ctx: {
+      harness,
+      model: pick("model"),
+      profile: pick("profile"),
+      project: pick("project"),
+      role: pick("role"),
+    },
     output,
   };
 }
@@ -219,11 +258,18 @@ if (import.meta.main) {
   const { ctx, output } = parseCtx(process.argv.slice(2));
   const trace: string[] = [];
   const config = select(ctx, (why) => trace.push(why));
-  const argv = ctx.harness === "codex" ? renderCodex(config) : renderClaude(config);
-  const result = { argv, model_matched: argv.includes("--model"), trace, warnings: [] as string[] };
+  const argv =
+    ctx.harness === "codex" ? renderCodex(config) : renderClaude(config);
+  const result = {
+    argv,
+    model_matched: argv.includes("--model"),
+    trace,
+    warnings: [] as string[],
+  };
 
   if (output === "shell") {
-    const q = (a: string) => (/^[A-Za-z0-9_@%+=:,./-]+$/.test(a) ? a : `'${a.replace(/'/g, `'\\''`)}'`);
+    const q = (a: string) =>
+      /^[A-Za-z0-9_@%+=:,./-]+$/.test(a) ? a : `'${a.replace(/'/g, `'\\''`)}'`;
     console.log(argv.map(q).join(" "));
     for (const t of trace) console.error(`trace: ${t}`);
   } else {
