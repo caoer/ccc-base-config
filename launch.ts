@@ -64,8 +64,8 @@ export function select(ctx: Ctx, note: (why: string) => void): Config {
     c.model = "claude-fable-5";
     c.systemPromptFile = "prompts/SYSTEM_PROMPT.fable.md";
   };
-  const opus = () => {
-    c.model = "claude-opus-4-8";
+  const opus = (model = "claude-opus-4-8") => {
+    c.model = model;
     c.systemPromptFile = "prompts/SYSTEM_PROMPT.opus.md";
   };
 
@@ -76,7 +76,22 @@ export function select(ctx: Ctx, note: (why: string) => void): Config {
     note(`role=${ctx.role}: +skill ccc-base, +roles/${ctx.role}.md`);
   }
 
-  // model: named arms first; any other requested id passes through untouched
+  // profile fleets: accounts that run the standard split — fable for the
+  // thinking roles (advisor, leader, handled by the role fallback below),
+  // opus-1m for workers.
+  const OPUS_1M = "claude-opus-4-8[1m]";
+  const FABLE_FLEET = new Set([
+    "blusher-83savvy",
+    "dewiest_gulp",
+    "monk0foreleg",
+    "colder_therapy0i",
+    "grid-mullein1b",
+    "vows_yogic_9k",
+    "crusted_standby_0n",
+  ]);
+
+  // model: named arms first; any other requested id passes through untouched;
+  // then per-profile / per-role defaults when the caller named no model.
   if (ctx.model === "claude-fable-5") {
     fable();
     note("model=claude-fable-5: fable arm");
@@ -87,6 +102,13 @@ export function select(ctx: Ctx, note: (why: string) => void): Config {
   } else if (ctx.model) {
     c.model = ctx.model;
     note(`model=${ctx.model}: passthrough as real id`);
+  } else if (ctx.profile === "does_bannock_6u") {
+    // fable quota spent on this account — every role runs opus-1m
+    opus(OPUS_1M);
+    note(`profile=does_bannock_6u, no model: ${c.model} (fable quota spent)`);
+  } else if (ctx.role === "worker" && ctx.profile && FABLE_FLEET.has(ctx.profile)) {
+    opus(OPUS_1M);
+    note(`profile=${ctx.profile} role=worker, no model: ${c.model}`);
   } else if (ctx.role === "leader" || ctx.role === "advisor") {
     // no model requested: leaders and advisors run the full fable arm
     fable();
@@ -99,6 +121,14 @@ export function select(ctx: Ctx, note: (why: string) => void): Config {
     c.effort = "xhigh";
     c.systemPromptFile = "prompts/SYSTEM_PROMPT.fable.md";
     note(`profile=codex: ${c.model} ${c.effort}`);
+  }
+
+  // kimi profile: its moonshot endpoint speaks k3 ids — every role
+  if (ctx.profile === "kimi-k3-moonshot") {
+    c.model = "k3[1m]";
+    c.effort = "xhigh";
+    c.systemPromptFile = "prompts/SYSTEM_PROMPT.fable.md";
+    note(`profile=kimi-k3-moonshot: ${c.model} ${c.effort}`);
   }
 
   return c;
