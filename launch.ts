@@ -82,19 +82,42 @@ export function select(ctx: Ctx, note: (why: string) => void): Config {
   // neither roster — or an empty FABLE_FLEET — falls through to opus-1m too.
   const OPUS_1M = "claude-opus-4-8[1m]";
   const FABLE_FLEET = new Set([
-    "blusher-83savvy",
+    "dewiest_gulp",
+    "crusted_standby_0n",
     "grid-mullein1b",
   ]);
   const OPUS_1M_FLEET = new Set([
-    "dewiest_gulp",
-    "monk0foreleg",
-    "colder_therapy0i",
     "vows_yogic_9k",
+    "blusher-83savvy",
+    "monk0foreleg",
+    "dewiest_gulp",
     "crusted_standby_0n",
+    "colder_therapy0i",
   ]);
 
-  // model: named arms first; any other requested id passes through untouched;
-  // then per-profile / per-role defaults when the caller named no model.
+  // ─── Role pools: THE first model rule. Each role draws its model from a pool.
+  // advisor/leader think on fable; workers run opus-1m. Comment out the role-pool
+  // BRANCH in the selection chain below to disable this and fall through to the
+  // per-profile rules (FABLE_FLEET / OPUS_1M_FLEET / does_bannock_6u). Pools hold
+  // model ids; pick() chooses one, applyModel() routes it through its prompt arm.
+  const THINKING_POOL = ["claude-fable-5"]; // advisor, leader
+  const WORKER_POOL = [OPUS_1M]; //           worker
+  const rolePool = (role?: string): string[] | undefined =>
+    role === "advisor" || role === "leader"
+      ? THINKING_POOL
+      : role === "worker"
+        ? WORKER_POOL
+        : undefined;
+  const pick = (pool: string[]) =>
+    pool[Math.floor(Math.random() * pool.length)];
+  const applyModel = (model: string) => {
+    if (model === "claude-fable-5") fable();
+    else if (model.startsWith("claude-opus-4-8")) opus(model);
+    else c.model = model;
+  };
+
+  // model: explicit id wins; then role pools; then the per-profile fallback
+  // rules (reached only when the role-pool branch below is commented out).
   if (ctx.model === "claude-fable-5") {
     fable();
     note("model=claude-fable-5: fable arm");
@@ -105,6 +128,11 @@ export function select(ctx: Ctx, note: (why: string) => void): Config {
   } else if (ctx.model) {
     c.model = ctx.model;
     note(`model=${ctx.model}: passthrough as real id`);
+  } else if (rolePool(ctx.role)) {
+    // role pool — the first roster rule. comment out this branch to fall
+    // through to the per-profile rules below.
+    applyModel(pick(rolePool(ctx.role)!));
+    note(`role=${ctx.role}, no model: ${c.model} (role pool)`);
   } else if (ctx.profile === "does_bannock_6u") {
     // fable quota spent on this account — every role runs opus-1m
     opus(OPUS_1M);
@@ -116,19 +144,25 @@ export function select(ctx: Ctx, note: (why: string) => void): Config {
   ) {
     // FABLE_FLEET thinking roles run the full fable arm
     fable();
-    note(`profile=${ctx.profile} role=${ctx.role}, no model: fable arm (FABLE_FLEET)`);
+    note(
+      `profile=${ctx.profile} role=${ctx.role}, no model: fable arm (FABLE_FLEET)`,
+    );
   } else if (ctx.role) {
     // every other fleet launch — FABLE_FLEET workers, all of OPUS_1M_FLEET, and
     // any unlisted profile — runs opus-1m
     opus(OPUS_1M);
     const fleet =
-      ctx.profile && OPUS_1M_FLEET.has(ctx.profile) ? "OPUS_1M_FLEET" : "default";
-    note(`profile=${ctx.profile ?? "?"} role=${ctx.role}, no model: ${c.model} (${fleet})`);
+      ctx.profile && OPUS_1M_FLEET.has(ctx.profile)
+        ? "OPUS_1M_FLEET"
+        : "default";
+    note(
+      `profile=${ctx.profile ?? "?"} role=${ctx.role}, no model: ${c.model} (${fleet})`,
+    );
   }
 
   // codex profile: its endpoint speaks gpt ids;
   if (ctx.profile === "codex") {
-    c.model = "gpt-5.6[1m]";
+    c.model = "gpt-5.6-sol[1m]";
     c.effort = "xhigh";
     c.systemPromptFile = "prompts/SYSTEM_PROMPT.fable.md";
     note(`profile=codex: ${c.model} ${c.effort}`);
@@ -140,6 +174,13 @@ export function select(ctx: Ctx, note: (why: string) => void): Config {
     c.effort = "xhigh";
     c.systemPromptFile = "prompts/SYSTEM_PROMPT.fable.md";
     note(`profile=kimi-k3-moonshot: ${c.model} ${c.effort}`);
+  }
+
+  if (ctx.profile === "grok") {
+    c.model = "grok-4.5[1m]";
+    c.effort = "xhigh";
+    c.systemPromptFile = "prompts/SYSTEM_PROMPT.fable.md";
+    note(`profile=grok: ${c.model} ${c.effort}`);
   }
 
   return c;
