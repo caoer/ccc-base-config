@@ -100,11 +100,11 @@ export function select(ctx: Ctx, note: (why: string) => void): Config {
   // BRANCH in the selection chain below to disable this and fall through to the
   // per-profile rules (FABLE_FLEET / OPUS_1M_FLEET / does_bannock_6u). Pools hold
   // model ids; pick() chooses one, applyModel() routes it through its prompt arm.
-  const THINKING_POOL = ["claude-fable-5"]; // advisor, leader
-  const WORKER_POOL = [OPUS_1M]; //           worker
+  const ADVISOR_LEADER_POOL = ["claude-fable-5"]; // advisor, leader
+  const WORKER_POOL = [OPUS_1M]; //                 worker
   const rolePool = (role?: string): string[] | undefined =>
     role === "advisor" || role === "leader"
-      ? THINKING_POOL
+      ? ADVISOR_LEADER_POOL
       : role === "worker"
         ? WORKER_POOL
         : undefined;
