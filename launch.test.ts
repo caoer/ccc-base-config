@@ -829,6 +829,29 @@ describe("matrix", () => {
     expect(after).toBe(before);
   });
 
+  test("each profile renders against ITS env, never the caller's session", () => {
+    const leaked = fixedWorld({ env: { ANTHROPIC_BASE_URL: "https://leaked.example" }, pick: (c) => c[0] });
+    const profileEnv = (p: string) =>
+      p === "endpoint" ? { ANTHROPIC_BASE_URL: "https://third-party.example" } : {};
+    const rows = buildMatrix(
+      { profiles: ["claude-acct", "endpoint"], roles: ["worker"], models: [""], cwds: [""] },
+      leaked,
+      profileEnv,
+    );
+    // the claude account keeps its model despite the leaked session var
+    expect(rows[0].argv).toContain("claude-opus-5[1m]");
+    // the endpoint profile gets none, from its own .env
+    expect(rows[1].argv).not.toContain("--model");
+  });
+
+  test("without a profile-env reader the matrix uses the caller's env", () => {
+    const rows = buildMatrix(
+      { profiles: ["anything"], roles: ["worker"], models: [""], cwds: [""] },
+      fixedWorld({ env: { ANTHROPIC_BASE_URL: "https://x.example" }, pick: (c) => c[0] }),
+    );
+    expect(rows[0].argv).not.toContain("--model");
+  });
+
   test("a matrix surfaces a role no route knows", () => {
     const rows = buildMatrix(
       { profiles: [""], roles: ["ghost"], models: [""], cwds: [""] },

@@ -679,9 +679,24 @@ export function rulesProfiles(): string[] {
   return [...named].sort();
 }
 
-export function buildMatrix(axes: Axes, world: World): Row[] {
+/** A profile's own env — its .env is where ANTHROPIC_BASE_URL and
+ *  ANTHROPIC_MODEL live, and those decide whether it gets a --model at all.
+ *  The CLI supplies the reader; the matrix itself stays free of the disk. */
+export type ProfileEnv = (profile: string) => Record<string, string | undefined>;
+
+export function buildMatrix(axes: Axes, world: World, profileEnv?: ProfileEnv): Row[] {
   const rows: Row[] = [];
   for (const profile of axes.profiles) {
+    // Render each profile against ITS environment, not the caller's shell:
+    // every ANTHROPIC_* comes from the profile's own .env, never inherited,
+    // or a matrix run from inside an endpoint session would report every
+    // claude account as model-less.
+    let w = world;
+    if (profileEnv && profile) {
+      const base: Record<string, string | undefined> = {};
+      for (const [k, v] of Object.entries(world.env)) if (!k.startsWith("ANTHROPIC_")) base[k] = v;
+      w = { ...world, env: { ...base, ...profileEnv(profile) } };
+    }
     for (const role of axes.roles) {
       for (const model of axes.models) {
         for (const cwd of axes.cwds) {
@@ -691,7 +706,7 @@ export function buildMatrix(axes: Axes, world: World): Row[] {
           if (model) ctx.model = model;
           if (cwd) ctx.cwd = cwd;
           // dry: a matrix run inspects, it never writes
-          const { argv, plan } = render(ctx, world, { dry: true });
+          const { argv, plan } = render(ctx, w, { dry: true });
           rows.push({
             profile,
             role,
@@ -719,7 +734,7 @@ const flagValue = (argv: string[], flag: string): string => {
 
 const short = (p: string): string => (p ? p.replace(`${ROOT}/`, "") : "");
 
-function matrixTable(rows: Row[], axes: Axes): string {
+function matrixTable(rows: Row[], axes: Axes, note = ""): string {
   // Only the flags the dedicated columns already show are hidden from extras;
   // the append file is NOT one of them — dropping it would let the role brief
   // disappear without the table changing.
@@ -753,7 +768,8 @@ function matrixTable(rows: Row[], axes: Axes): string {
     `${rows.length} combinations — ` +
     `${axes.profiles.length} profiles × ${axes.roles.length} roles × ` +
     `${axes.models.length} models × ${axes.cwds.length} cwds`;
-  return [axisNote, "", line(head), line(widths.map((w) => "─".repeat(w))), ...body.map(line)].join("\n");
+  const header = note ? [axisNote, note] : [axisNote];
+  return [...header, "", line(head), line(widths.map((w) => "─".repeat(w))), ...body.map(line)].join("\n");
 }
 
 function writeViewer(rows: Row[], axes: Axes, out: string, generated: string): string {
@@ -859,8 +875,29 @@ function parseArgs(args: string[]): Parsed {
   };
 }
 
+const uccHome = (env: Record<string, string | undefined>): string =>
+  env.UCC_HOME ?? `${env.HOME}/.local/share/ucc`;
+
+/** Read a profile's .env — plain KEY=VALUE lines, the installer's own format. */
+function readProfileEnv(
+  profile: string,
+  env: Record<string, string | undefined>,
+): Record<string, string | undefined> {
+  const file = resolvePath(uccHome(env), "profiles", profile, ".env");
+  if (!existsSync(file)) return {};
+  const out: Record<string, string | undefined> = {};
+  for (const line of readFileSync(file, "utf8").split("\n")) {
+    const text = line.trim();
+    if (text === "" || text.startsWith("#")) continue;
+    const eq = text.indexOf("=");
+    if (eq < 0) continue;
+    out[text.slice(0, eq).trim()] = text.slice(eq + 1).trim();
+  }
+  return out;
+}
+
 function installedProfiles(env: Record<string, string | undefined>): string[] {
-  const dir = expandPath(`${env.UCC_HOME ?? `${env.HOME}/.local/share/ucc`}/profiles`, env);
+  const dir = expandPath(`${uccHome(env)}/profiles`, env);
   if (!existsSync(dir)) return [];
   return readdirSync(dir, { withFileTypes: true })
     .filter((d) => d.isDirectory())
@@ -920,13 +957,25 @@ if (isMain) {
       cwds: p.axes.cwds ?? [""],
     };
     // matrix must be reproducible: always take the first candidate
-    const rows = buildMatrix(axes, { ...world, pick: (c) => c[0] });
+    const rows = buildMatrix(axes, { ...world, pick: (c) => c[0] }, (p) => readProfileEnv(p, world.env));
     if (p.html) {
       console.log(writeViewer(rows, axes, p.html, new Date().toISOString()));
     } else if (p.outputGiven && p.output === "json") {
       console.log(JSON.stringify({ axes, rows }, null, 2));
     } else {
-      console.log(matrixTable(rows, axes));
+      // a named profile renders against its own .env; the no-profile rows
+      // can only reflect the shell you are standing in, so say when that
+      // shell is itself an endpoint session
+      const shellEndpoint = world.env.ANTHROPIC_BASE_URL;
+      console.log(
+        matrixTable(
+          rows,
+          axes,
+          shellEndpoint
+            ? `this shell sets ANTHROPIC_BASE_URL=${shellEndpoint} — the profile-less rows drop --model for that reason; named profiles use their own .env`
+            : "",
+        ),
+      );
     }
   }
 }
