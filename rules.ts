@@ -163,6 +163,19 @@ export const arms: Record<string, Arm> = {
   "grok-4.5:worker": { model: "grok-4.5[1m]", prompt: "prompts/fable-5-calibration.worker.md", effort: "xhigh", pin: true },
 };
 
+// ─── third-party endpoints ──────────────────────────────────────────────────
+// A profile that sets ANTHROPIC_BASE_URL points at someone else's API, which
+// serves its own models — a claude id means nothing there. When this probe
+// holds we emit NO --model at all, and the profile's own ANTHROPIC_MODEL
+// applies. That is ~27 of the installed profiles (zenmux, vol, glm, minimax,
+// deepseek …), none of which are named in the routes below.
+//
+// A `pin`ned arm is the exception: pinning states that we DO know this
+// endpoint's model id. codex depends on it — its .env sets no ANTHROPIC_MODEL,
+// so dropping ours would leave it with no model at all.
+
+export const ENDPOINT_SERVES_ITS_OWN_MODEL = "env:ANTHROPIC_BASE_URL";
+
 // ─── pools ──────────────────────────────────────────────────────────────────
 // Named sets of ucc profiles. A route matches a pool instead of listing
 // profiles inline, so one account moves between fleets by moving one line.

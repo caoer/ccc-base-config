@@ -38,6 +38,7 @@ import {
   routes,
   layers,
   launcherDefaults,
+  ENDPOINT_SERVES_ITS_OWN_MODEL,
   OWN_LAUNCHER_DEFAULTS,
   type Append,
   type Layer,
@@ -443,6 +444,18 @@ export function resolve(ctx: Ctx, world: World): Plan {
     trace.push(`no route matched — model ${asked} passes through as a real id`);
   } else {
     trace.push("no route matched, no model requested — harness keeps its own model");
+  }
+
+  // The endpoint rule: someone else's API serves its own models, so ours are
+  // meaningless there. A pinned arm is the exception — it states that we know
+  // this endpoint's id. See rules.ts § third-party endpoints.
+  const pinned = arm !== undefined && arms[arm]?.pin === true;
+  if (config.model !== undefined && !pinned && probe(ENDPOINT_SERVES_ITS_OWN_MODEL, c, world)) {
+    trace.push(
+      `${ENDPOINT_SERVES_ITS_OWN_MODEL}: dropping --model ${config.model} — ` +
+        `this endpoint serves its own, so ANTHROPIC_MODEL applies`,
+    );
+    config.model = undefined;
   }
 
   // 3. layers — every match applies, in order

@@ -18,6 +18,7 @@ import { join } from "node:path";
 import { tmpdir, homedir } from "node:os";
 import {
   resolve,
+  render as renderPlan,
   emitClaude,
   validate,
   probe,
@@ -49,9 +50,18 @@ interface RunResult {
   promptFiles: Record<string, string>;
 }
 
+/** the shell that runs the tests may be inside an endpoint profile; the
+ *  deployed-selection cases are about a claude account */
+const CLAUDE_ENV = (() => {
+  const e = { ...process.env };
+  delete e.ANTHROPIC_BASE_URL;
+  return e;
+})();
+
 function runWith(bin: string, args: string[]): RunResult {
   const proc = Bun.spawnSync([bin, LAUNCH, ...args], {
     cwd: import.meta.dir,
+    env: CLAUDE_ENV,
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -217,6 +227,7 @@ describe("deployed selection (process contract, real repo)", () => {
     expect(r.exitCode).toBe(0);
     const proc = Bun.spawnSync(["bun", LAUNCH, "explain", '{"project":"/x/ccc-statusd"}'], {
       cwd: import.meta.dir,
+      env: CLAUDE_ENV,
       stdout: "pipe",
     });
     expect(proc.stdout.toString()).toContain("cwd=/x/ccc-statusd");
@@ -250,6 +261,7 @@ describe("deployed selection (process contract, real repo)", () => {
   test("explain prints the decision, not JSON", () => {
     const proc = Bun.spawnSync(["bun", LAUNCH, "explain", "--role", "worker"], {
       cwd: import.meta.dir,
+      env: CLAUDE_ENV,
       stdout: "pipe",
     });
     const out = proc.stdout.toString();
@@ -358,6 +370,57 @@ describe("fail-loud branches", () => {
     const r = inSubprocess(PLAN(`effort: "ultra"`));
     expect(r.exitCode).toBe(1);
     expect(r.stderr).toContain("not one of");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe("third-party endpoints (ANTHROPIC_BASE_URL)", () => {
+  const endpoint = (over: Partial<World> = {}) =>
+    fixedWorld({ env: { ANTHROPIC_BASE_URL: "https://api.minimax.io/anthropic" }, ...over });
+
+  test("no --model at all — the endpoint serves its own", () => {
+    const plan = resolve({ harness: "claude", role: "worker" }, endpoint());
+    expect(plan.config.model).toBeUndefined();
+    expect(plan.trace.join(" ")).toContain("serves its own");
+    // the prompt is still ours
+    expect(plan.config.systemPromptFile).toBe("prompts/opus-5-stance.worker.md");
+  });
+
+  test("an explicitly requested model is dropped too, so the caller's own flag stands", () => {
+    const plan = resolve({ harness: "claude", model: "claude-opus-5" }, endpoint());
+    expect(plan.config.model).toBeUndefined();
+    expect(emitClaude(plan, endpoint())).not.toContain("--model");
+  });
+
+  test("model_matched is false, so the wrapper keeps whatever the user passed", () => {
+    const { argv } = renderPlan({ harness: "claude", role: "worker" }, endpoint());
+    expect(argv.includes("--model")).toBe(false);
+  });
+
+  test("a pinned arm keeps its id — pinning says we know this endpoint", () => {
+    for (const [profile, model] of [
+      ["codex", "gpt-5.6-sol[1m]"],
+      ["grok", "grok-4.5[1m]"],
+      ["kimi-k3-moonshot", "k3[1m]"],
+    ] as const) {
+      expect(resolve({ harness: "claude", profile, role: "worker" }, endpoint()).config.model).toBe(model);
+    }
+  });
+
+  test("codex would otherwise have no model at all — its .env pins none", () => {
+    // the reason `pin` is the exception rather than a blanket drop
+    const plan = resolve({ harness: "claude", profile: "codex" }, endpoint());
+    expect(plan.config.model).toBe("gpt-5.6-sol[1m]");
+  });
+
+  test("a claude account is untouched — no base url, no rule", () => {
+    const plan = resolve({ harness: "claude", role: "worker" }, fixedWorld({ env: {} }));
+    expect(plan.config.model).toBe("claude-opus-5[1m]");
+  });
+
+  test("an empty ANTHROPIC_BASE_URL does not count as set", () => {
+    const plan = resolve({ harness: "claude", role: "worker" }, fixedWorld({ env: { ANTHROPIC_BASE_URL: "" } }));
+    expect(plan.config.model).toBe("claude-opus-5[1m]");
   });
 });
 
@@ -757,11 +820,11 @@ describe("matrix", () => {
   });
 
   test("a matrix run writes nothing", () => {
-    const proc = Bun.spawnSync(["bun", LAUNCH, ...GOLDEN_ARGS], { cwd: import.meta.dir, stdout: "pipe" });
+    const proc = Bun.spawnSync(["bun", LAUNCH, ...GOLDEN_ARGS], { cwd: import.meta.dir, env: CLAUDE_ENV, stdout: "pipe" });
     expect(proc.exitCode).toBe(0);
     const rendered = join(import.meta.dir, ".rendered");
     const before = existsSync(rendered) ? statSync(rendered).mtimeMs : 0;
-    Bun.spawnSync(["bun", LAUNCH, ...GOLDEN_ARGS], { cwd: import.meta.dir, stdout: "pipe" });
+    Bun.spawnSync(["bun", LAUNCH, ...GOLDEN_ARGS], { cwd: import.meta.dir, env: CLAUDE_ENV, stdout: "pipe" });
     const after = existsSync(rendered) ? statSync(rendered).mtimeMs : 0;
     expect(after).toBe(before);
   });
@@ -787,6 +850,7 @@ describe("matrix", () => {
   test("the golden matrix is current — regenerate with the GOLDEN_ARGS command", () => {
     const proc = Bun.spawnSync(["bun", LAUNCH, ...GOLDEN_ARGS], {
       cwd: import.meta.dir,
+      env: CLAUDE_ENV,
       stdout: "pipe",
       stderr: "pipe",
     });
