@@ -98,24 +98,40 @@ describe("deployed selection (process contract, real repo)", () => {
   test("advisor is the one role that stays on fable", () => {
     const r = run(["--role", "advisor"]);
     expect(modelOf(r)).toBe("claude-fable-5[1m]");
-    expect(promptOf(r)).toBe("fable-5-calibration.md");
-    expect(r.promptFiles["--append-system-prompt-file"]).toContain("You are an **advisor**");
+    expect(promptOf(r)).toBe("fable-5-calibration.advisor.md");
   });
 
   test("leader and worker run opus-5", () => {
     for (const role of ["leader", "worker"]) {
       const r = run(["--role", role]);
       expect(modelOf(r)).toBe("claude-opus-5[1m]");
-      expect(promptOf(r)).toBe("opus-5-stance.md");
+      expect(promptOf(r)).toBe(`opus-5-stance.${role}.md`);
     }
   });
 
-  test("a role brings its brief and the ccc-base preload, in that order", () => {
-    const append = run(["--role", "leader"]).promptFiles["--append-system-prompt-file"];
-    expect(append).toContain("<session-startup>");
-    expect(append).toContain("/ccc-base");
-    expect(append).toContain("You are a **leader**");
-    expect(append.indexOf("<session-startup>")).toBeLessThan(append.indexOf("You are a **leader**"));
+  test("a role gets a WHOLE prompt — nothing is appended or synthesized", () => {
+    for (const role of ["advisor", "leader", "worker"]) {
+      const r = run(["--role", role]);
+      expect(r.json!.argv).not.toContain("--append-system-prompt-file");
+      const prompt = r.promptFiles["--system-prompt-file"];
+      expect(prompt).toContain(`You are ${role === "advisor" ? "an" : "a"} **${role}**`);
+      // the arm's own doctrine is in the same file, not a separate flag
+      expect(prompt).toContain("You are a software engineering agent");
+      // the skill-preload directive is gone: config no longer writes prompt text
+      expect(prompt).not.toContain("<session-startup>");
+    }
+  });
+
+  test("each role prompt is a distinct file, and the roleless one is separate", () => {
+    const files = ["advisor", "leader", "worker"].map((role) => promptOf(run(["--role", role])));
+    files.push(promptOf(run([])));
+    expect(new Set(files).size).toBe(4);
+  });
+
+  test("an endpoint profile carries role prompts too", () => {
+    const r = run(["--profile", "grok", "--role", "worker"]);
+    expect(modelOf(r)).toBe("grok-4.5[1m]");
+    expect(promptOf(r)).toBe("fable-5-calibration.worker.md");
   });
 
   test("every claude id carries [1m] — a bare id would report a 200k window", () => {
@@ -155,10 +171,10 @@ describe("deployed selection (process contract, real repo)", () => {
     expect(r.json!.trace.join(" ")).toContain("passes through");
   });
 
-  test("explicit model beats the role's route", () => {
+  test("an explicit model beats the role's model but keeps the role's prompt", () => {
     const r = run(["--role", "advisor", "--model", "claude-opus-5"]);
     expect(modelOf(r)).toBe("claude-opus-5[1m]");
-    expect(promptOf(r)).toBe("opus-5-stance.md");
+    expect(promptOf(r)).toBe("opus-5-stance.advisor.md");
   });
 
   test("endpoint profiles keep their own ids and have no claude-opus-5", () => {
@@ -220,12 +236,15 @@ describe("deployed selection (process contract, real repo)", () => {
     expect(r.stdout).toContain(`'a'\\''b;touch /tmp/SHELL-PWN'`);
   });
 
-  test("rendered append content is what changes the path, not the run", () => {
-    const worker = run(["--role", "worker"]).json!.argv;
-    const leader = run(["--role", "leader"]).json!.argv;
-    const appendOf = (a: string[]) => a[a.indexOf("--append-system-prompt-file") + 1];
-    expect(appendOf(worker)).toBe(appendOf(run(["--role", "worker"]).json!.argv));
-    expect(appendOf(worker)).not.toBe(appendOf(leader));
+  test("a launch is reproducible", () => {
+    expect(run(["--role", "worker"]).json!.argv).toEqual(run(["--role", "worker"]).json!.argv);
+  });
+
+  test("a role no route knows lands on the roleless prompt, and says so", () => {
+    const r = run(["--role", "ghost"]);
+    expect(r.exitCode).toBe(0);
+    expect(promptOf(r)).toBe("opus-5-stance.md");
+    expect(r.json!.warnings.join(" ")).toContain("matches no route");
   });
 
   test("explain prints the decision, not JSON", () => {
@@ -266,17 +285,34 @@ describe("runtime portability (the wrappers use node, not bun)", () => {
 
 // ═══════════════════════════════════════════════════════════════════════════
 describe("fail-loud branches", () => {
-  test("unknown role → missing roles/<role>.md fails loud", () => {
-    const r = run(["--role", "ghost"]);
-    expect(r.exitCode).toBe(1);
-    expect(r.stderr).toContain("not found");
-    expect(r.stderr).toContain("roles/ghost.md");
+  test("a prompt file named in rules.ts but missing on disk fails loud", () => {
+    const dir = mkdtempSync(join(tmpdir(), "launch-missing-"));
+    const script = join(dir, "case.ts");
+    writeFileSync(
+      script,
+      `import { emitClaude, fixedWorld } from ${JSON.stringify(LAUNCH)};\n` +
+        `emitClaude({ ctx: { harness: "claude" }, candidates: [], trace: [], warnings: [],\n` +
+        `  config: { systemPromptFile: "prompts/nope.md", append: [], mcp: [], tools: [], allowedTools: [], disallowedTools: [], extraArgs: [] } }, fixedWorld());\n`,
+    );
+    const proc = Bun.spawnSync(["bun", script], { stdout: "pipe", stderr: "pipe" });
+    rmSync(dir, { recursive: true, force: true });
+    expect(proc.exitCode).toBe(1);
+    expect(proc.stderr.toString()).toContain("not found");
   });
 
-  test("a role may not climb out of the repo with ..", () => {
-    const r = run(["--role", "../../../../tmp/pwn-role"]);
-    expect(r.exitCode).toBe(1);
-    expect(r.stderr).toContain("may not climb out");
+  test("a prompt path may not climb out of the repo with ..", () => {
+    const dir = mkdtempSync(join(tmpdir(), "launch-climb-"));
+    const script = join(dir, "case.ts");
+    writeFileSync(
+      script,
+      `import { emitClaude, fixedWorld } from ${JSON.stringify(LAUNCH)};\n` +
+        `emitClaude({ ctx: { harness: "claude" }, candidates: [], trace: [], warnings: [],\n` +
+        `  config: { systemPromptFile: "../../../../tmp/pwn.md", append: [], mcp: [], tools: [], allowedTools: [], disallowedTools: [], extraArgs: [] } }, fixedWorld());\n`,
+    );
+    const proc = Bun.spawnSync(["bun", script], { stdout: "pipe", stderr: "pipe" });
+    rmSync(dir, { recursive: true, force: true });
+    expect(proc.exitCode).toBe(1);
+    expect(proc.stderr.toString()).toContain("may not climb out");
   });
 
   test("harness=codex is a fail-loud stub", () => {
@@ -310,7 +346,7 @@ describe("fail-loud branches", () => {
 
   const PLAN = (over: string) =>
     `emitClaude({ ctx: { harness: "claude" }, candidates: [], trace: [], warnings: [],\n` +
-    `  config: { append: [], skills: [], mcp: [], tools: [], allowedTools: [], disallowedTools: [], extraArgs: [], ${over} } }, fixedWorld());`;
+    `  config: { append: [], mcp: [], tools: [], allowedTools: [], disallowedTools: [], extraArgs: [], ${over} } }, fixedWorld());`;
 
   test("empty model fails loud (never emits --model '')", () => {
     const r = inSubprocess(PLAN(`model: " "`));
@@ -516,10 +552,10 @@ describe("engine: precedence and emit", () => {
 
   test("defaults, then arm, then layers", () => {
     const plan = resolve({ harness: "claude", role: "worker" }, w);
-    expect(plan.arm).toBe("opus-5");
-    expect(plan.config.systemPromptFile).toBe("prompts/opus-5-stance.md");
+    expect(plan.arm).toBe("opus-5:worker");
+    expect(plan.config.systemPromptFile).toBe("prompts/opus-5-stance.worker.md");
     expect(plan.config.effort).toBe("xhigh");
-    expect(plan.config.skills).toEqual(["ccc-base"]);
+    expect(plan.config.append).toEqual([]);
   });
 
   test("an explicit effort suffix beats every rule", () => {
@@ -527,7 +563,7 @@ describe("engine: precedence and emit", () => {
   });
 
   test("the first matching route wins and stops the search", () => {
-    expect(resolve({ harness: "claude", profile: "codex", role: "worker" }, w).arm).toBe("gpt-5.6-sol");
+    expect(resolve({ harness: "claude", profile: "codex", role: "worker" }, w).arm).toBe("gpt-5.6-sol:worker");
   });
 
   test("variadic flags are emitted as ONE --flag=value token", () => {
@@ -596,14 +632,6 @@ describe("engine: precedence and emit", () => {
     expect(resolve({ harness: "claude", role: "worker" }, w).warnings).toEqual([]);
   });
 
-  test("skills dedupe, normalize leading slashes, and produce one directive", () => {
-    const argv = emitClaude(planWith({ skills: ["/ccc-work", "ccc-base", "ccc-work"] }), w);
-    const content = readFileSync(argv[argv.indexOf("--append-system-prompt-file") + 1], "utf8");
-    expect(content).toContain("/ccc-work, /ccc-base");
-    expect(content).not.toContain("//ccc-work");
-    expect(content.match(/<session-startup>/g)).toHaveLength(1);
-  });
-
   test("a lone append file passes through untouched (no .rendered copy)", () => {
     const dir = mkdtempSync(join(tmpdir(), "launch-append-"));
     const f = join(dir, "solo.md");
@@ -659,7 +687,7 @@ describe("the launcher-defaults cutover", () => {
   test("OFF by default — bash still owns the shared prompt and mcp configs", () => {
     const plan = resolve({ harness: "claude", role: "worker" }, fixedWorld());
     expect(plan.config.mcp).toEqual([]);
-    expect(plan.config.systemPromptFile).toBe("prompts/opus-5-stance.md");
+    expect(plan.config.systemPromptFile).toBe("prompts/opus-5-stance.worker.md");
   });
 
   test("ON: mcp configs accumulate, but a fallback never overrides an arm", () => {
@@ -670,7 +698,7 @@ describe("the launcher-defaults cutover", () => {
       hasExec: () => true,
     });
     const worker = resolve({ harness: "claude", role: "worker" }, w);
-    expect(worker.config.systemPromptFile).toBe("prompts/opus-5-stance.md");
+    expect(worker.config.systemPromptFile).toBe("prompts/opus-5-stance.worker.md");
     expect(worker.config.mcp.length).toBe(2);
   });
 
@@ -724,8 +752,8 @@ describe("matrix", () => {
       expect(r.argv).toContain("--model");
       expect(r.arm).not.toBe("");
     }
-    expect(rows.find((r) => r.profile === "codex" && r.role === "worker")!.arm).toBe("gpt-5.6-sol");
-    expect(rows.find((r) => r.profile === "" && r.role === "advisor")!.arm).toBe("fable");
+    expect(rows.find((r) => r.profile === "codex" && r.role === "worker")!.arm).toBe("gpt-5.6-sol:worker");
+    expect(rows.find((r) => r.profile === "" && r.role === "advisor")!.arm).toBe("fable:advisor");
   });
 
   test("a matrix run writes nothing", () => {
@@ -738,13 +766,13 @@ describe("matrix", () => {
     expect(after).toBe(before);
   });
 
-  test("a matrix can render a combination this machine cannot launch", () => {
+  test("a matrix surfaces a role no route knows", () => {
     const rows = buildMatrix(
       { profiles: [""], roles: ["ghost"], models: [""], cwds: [""] },
       { ...fixedWorld(), pick: (c) => c[0] },
     );
     expect(rows).toHaveLength(1);
-    expect(rows[0].warnings.join(" ")).toContain("roles/ghost.md");
+    expect(rows[0].warnings.join(" ")).toContain("matches no route");
   });
 
   test("the table names every candidate when a route offers more than one", () => {
@@ -753,7 +781,7 @@ describe("matrix", () => {
       { profiles: [""], roles: ["worker"], models: [""], cwds: [""] },
       { ...fixedWorld(), pick: (c) => c[0] },
     );
-    expect(rows[0].candidates).toEqual(["opus-5"]);
+    expect(rows[0].candidates).toEqual(["opus-5:worker"]);
   });
 
   test("the golden matrix is current — regenerate with the GOLDEN_ARGS command", () => {
@@ -771,8 +799,9 @@ describe("matrix", () => {
     expect(golden).toContain("claude-opus-5");
     expect(golden).toContain("claude-opus-4-8[200k]");
     expect(golden).toContain("sonnet");
-    // the append file must be visible, or a dropped role brief would not show
-    expect(golden).toContain("append-system-prompt-file");
+    // every role prompt must be visible in the table
+    expect(golden).toContain("opus-5-stance.worker.md");
+    expect(golden).toContain("fable-5-calibration.advisor.md");
   });
 
   test("matrix --html writes a self-contained page with the data inlined", () => {
@@ -816,7 +845,6 @@ function planWith(over: Partial<Plan["config"]>, ctxOver: Partial<Ctx> = {}): Pl
     warnings: [],
     config: {
       append: [],
-      skills: [],
       mcp: [],
       tools: [],
       allowedTools: [],

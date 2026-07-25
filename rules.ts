@@ -92,8 +92,6 @@ export type Layer = {
   systemPrompt?: string;
   /** appended to the system prompt, in order */
   append?: Append[];
-  /** loaded on turn one via a startup directive */
-  skills?: string[];
   mcp?: Mcp[];
   /** the built-in tool set → --tools= ("" disables all, "default" for all) */
   tools?: string[];
@@ -124,42 +122,45 @@ export const defaults: Layer = {
 // 200k context window, which is wrong. The router strips the postfix before
 // matching, so a route says `claude-opus-5` and both spellings reach it.
 
-export const arms: Record<string, Arm> = {
-  // The fleet default.
-  "opus-5": {
-    model: "claude-opus-5[1m]",
-    prompt: "prompts/opus-5-stance.md",
-  },
-  // Advisors stay here: the armed, battle-tested arm.
-  fable: {
-    model: "claude-fable-5[1m]",
-    prompt: "prompts/fable-5-calibration.md",
-  },
-  "opus-4-8": {
-    model: "claude-opus-4-8[1m]",
-    prompt: "prompts/opus-4-operator.md",
-  },
+// A role gets a WHOLE prompt, not an overlay — one file per case, written
+// somewhere else and only pointed at from here. So an arm is a (model, prompt)
+// pair, and there is one arm per case. It is a long table on purpose: every
+// launch this fleet can produce is a row you can read, and nothing is assembled
+// at render time.
 
-  // Endpoints that speak their own model ids, and have no claude-opus-5.
-  // They pin: an explicitly requested claude id would be rejected upstream.
-  "gpt-5.6-sol": {
-    model: "gpt-5.6-sol[1m]",
-    prompt: "prompts/fable-5-calibration.md",
-    effort: "xhigh",
-    pin: true,
-  },
-  k3: {
-    model: "k3[1m]",
-    prompt: "prompts/fable-5-calibration.md",
-    effort: "xhigh",
-    pin: true,
-  },
-  "grok-4.5": {
-    model: "grok-4.5[1m]",
-    prompt: "prompts/fable-5-calibration.md",
-    effort: "xhigh",
-    pin: true,
-  },
+export const arms: Record<string, Arm> = {
+  // ── the fleet default ──
+  "opus-5": { model: "claude-opus-5[1m]", prompt: "prompts/opus-5-stance.md" },
+  "opus-5:advisor": { model: "claude-opus-5[1m]", prompt: "prompts/opus-5-stance.advisor.md" },
+  "opus-5:leader": { model: "claude-opus-5[1m]", prompt: "prompts/opus-5-stance.leader.md" },
+  "opus-5:worker": { model: "claude-opus-5[1m]", prompt: "prompts/opus-5-stance.worker.md" },
+
+  // ── advisors stay here: the armed, battle-tested arm ──
+  fable: { model: "claude-fable-5[1m]", prompt: "prompts/fable-5-calibration.md" },
+  "fable:advisor": { model: "claude-fable-5[1m]", prompt: "prompts/fable-5-calibration.advisor.md" },
+  "fable:leader": { model: "claude-fable-5[1m]", prompt: "prompts/fable-5-calibration.leader.md" },
+  "fable:worker": { model: "claude-fable-5[1m]", prompt: "prompts/fable-5-calibration.worker.md" },
+
+  // ── reached only by an explicit --model ──
+  "opus-4-8": { model: "claude-opus-4-8[1m]", prompt: "prompts/opus-4-operator.md" },
+
+  // ── endpoints that speak their own model ids, and have no claude-opus-5.
+  //    They pin: an explicitly requested claude id would be rejected upstream.
+  //    They run the fable prompts — same files, different model. ──
+  "gpt-5.6-sol": { model: "gpt-5.6-sol[1m]", prompt: "prompts/fable-5-calibration.md", effort: "xhigh", pin: true },
+  "gpt-5.6-sol:advisor": { model: "gpt-5.6-sol[1m]", prompt: "prompts/fable-5-calibration.advisor.md", effort: "xhigh", pin: true },
+  "gpt-5.6-sol:leader": { model: "gpt-5.6-sol[1m]", prompt: "prompts/fable-5-calibration.leader.md", effort: "xhigh", pin: true },
+  "gpt-5.6-sol:worker": { model: "gpt-5.6-sol[1m]", prompt: "prompts/fable-5-calibration.worker.md", effort: "xhigh", pin: true },
+
+  k3: { model: "k3[1m]", prompt: "prompts/fable-5-calibration.md", effort: "xhigh", pin: true },
+  "k3:advisor": { model: "k3[1m]", prompt: "prompts/fable-5-calibration.advisor.md", effort: "xhigh", pin: true },
+  "k3:leader": { model: "k3[1m]", prompt: "prompts/fable-5-calibration.leader.md", effort: "xhigh", pin: true },
+  "k3:worker": { model: "k3[1m]", prompt: "prompts/fable-5-calibration.worker.md", effort: "xhigh", pin: true },
+
+  "grok-4.5": { model: "grok-4.5[1m]", prompt: "prompts/fable-5-calibration.md", effort: "xhigh", pin: true },
+  "grok-4.5:advisor": { model: "grok-4.5[1m]", prompt: "prompts/fable-5-calibration.advisor.md", effort: "xhigh", pin: true },
+  "grok-4.5:leader": { model: "grok-4.5[1m]", prompt: "prompts/fable-5-calibration.leader.md", effort: "xhigh", pin: true },
+  "grok-4.5:worker": { model: "grok-4.5[1m]", prompt: "prompts/fable-5-calibration.worker.md", effort: "xhigh", pin: true },
 };
 
 // ─── pools ──────────────────────────────────────────────────────────────────
@@ -187,16 +188,36 @@ export const pools: Record<string, string[]> = {
 // requested nothing takes the arm's model too.
 
 export const routes: Route[] = [
-  // 1. endpoint profiles
+  // 1. endpoint profiles — role first, then the roleless launch
+  { when: { profile: "codex", role: "advisor" }, use: "gpt-5.6-sol:advisor" },
+  { when: { profile: "codex", role: "leader" }, use: "gpt-5.6-sol:leader" },
+  { when: { profile: "codex", role: "worker" }, use: "gpt-5.6-sol:worker" },
   { when: { profile: "codex" }, use: "gpt-5.6-sol", why: "codex endpoint" },
+
+  { when: { profile: "kimi-k3-moonshot", role: "advisor" }, use: "k3:advisor" },
+  { when: { profile: "kimi-k3-moonshot", role: "leader" }, use: "k3:leader" },
+  { when: { profile: "kimi-k3-moonshot", role: "worker" }, use: "k3:worker" },
   { when: { profile: "kimi-k3-moonshot" }, use: "k3", why: "moonshot endpoint" },
+
+  { when: { profile: "grok", role: "advisor" }, use: "grok-4.5:advisor" },
+  { when: { profile: "grok", role: "leader" }, use: "grok-4.5:leader" },
+  { when: { profile: "grok", role: "worker" }, use: "grok-4.5:worker" },
   { when: { profile: "grok" }, use: "grok-4.5", why: "grok endpoint" },
 
   // 2. the caller named a model. An effort suffix (-low … -max) and the [1m]
-  //    postfix are both stripped before these are matched.
+  //    postfix are both stripped before these are matched. Role first: asking
+  //    for a model must not cost an agent its role prompt.
+  { when: { model: "claude-opus-5", role: "advisor" }, use: "opus-5:advisor" },
+  { when: { model: "claude-opus-5", role: "leader" }, use: "opus-5:leader" },
+  { when: { model: "claude-opus-5", role: "worker" }, use: "opus-5:worker" },
   { when: { model: "claude-opus-5" }, use: "opus-5" },
+
+  { when: { model: "claude-fable-5", role: "advisor" }, use: "fable:advisor" },
+  { when: { model: "claude-fable-5", role: "leader" }, use: "fable:leader" },
+  { when: { model: "claude-fable-5", role: "worker" }, use: "fable:worker" },
   { when: { model: "claude-fable-5" }, use: "fable" },
-  { when: { model: "claude-opus-4-8" }, use: "opus-4-8" },
+
+  { when: { model: "claude-opus-4-8" }, use: "opus-4-8", why: "no role prompts for this arm" },
   //    variant catch-alls — an unlisted claude spelling still gets a prompt
   //    rather than silently launching on the harness default
   { when: { model: "claude-opus-5*" }, use: "opus-5", why: "opus-5 variant" },
@@ -205,25 +226,23 @@ export const routes: Route[] = [
   //    anything else named passes through as a real id, no prompt arm.
 
   // 3. advisors keep fable — except where its quota is spent.
-  { when: { noModel: true, role: "advisor", pool: "FABLE_SPENT" }, use: "opus-5", why: "fable quota spent" },
-  { when: { noModel: true, role: "advisor" }, use: "fable", why: "advisors stay on fable" },
+  { when: { noModel: true, role: "advisor", pool: "FABLE_SPENT" }, use: "opus-5:advisor", why: "fable quota spent" },
+  { when: { noModel: true, role: "advisor" }, use: "fable:advisor", why: "advisors stay on fable" },
 
   // 4. the default: everything else runs claude-opus-5.
-  { when: { noModel: true }, use: "opus-5", why: "fleet default" },
+  { when: { noModel: true, role: "leader" }, use: "opus-5:leader" },
+  { when: { noModel: true, role: "worker" }, use: "opus-5:worker" },
+  { when: { noModel: true }, use: "opus-5", why: "fleet default, no role" },
 ];
 
 // ─── layers ─────────────────────────────────────────────────────────────────
 // Additive config. Every layer whose `when` matches and whose `requires` hold
 // applies, in this order.
 
-export const layers: Layer[] = [
-  {
-    when: { role: "*" },
-    skills: ["ccc-base"],
-    append: [{ file: "roles/${role}.md" }],
-    why: "fleet role brief",
-  },
-];
+// Nothing needs one today: a role's whole prompt is its arm, and the launcher
+// defaults below are the only other users. Add a layer here when something
+// must apply ON TOP of an arm rather than instead of it.
+export const layers: Layer[] = [];
 
 // ─── launcherDefaults ───────────────────────────────────────────────────────
 // The bash wrappers (ucc-<profile>, ucc-auto, ucc-sdk) still inject these

@@ -83,8 +83,6 @@ export type Config = {
   systemPromptFile?: string;
   /** system-prompt append stream, in order */
   append: Append[];
-  /** preloaded at session start via one startup directive */
-  skills: string[];
   /** file paths, or the config object itself (serialized at emit) */
   mcp: Mcp[];
   tools: string[];
@@ -345,10 +343,6 @@ function applyLayer(c: Config, l: Layer, ctx: Ctx, world: World, trace: string[]
     for (const a of l.append) c.append.push("file" in a ? { file: I(a.file) } : { text: I(a.text) });
     did.push(`append ×${l.append.length}`);
   }
-  if (l.skills?.length && !taken(c.skills.length > 0, "skills")) {
-    c.skills.push(...l.skills.map(I));
-    did.push(`skills ${l.skills.join(",")}`);
-  }
   if (l.mcp?.length && !taken(c.mcp.length > 0, "mcp")) {
     c.mcp.push(
       ...l.mcp.map((m) =>
@@ -408,7 +402,6 @@ export function resolve(ctx: Ctx, world: World): Plan {
 
   const config: Config = {
     append: [],
-    skills: [],
     mcp: [],
     tools: [],
     allowedTools: [],
@@ -467,9 +460,23 @@ export function resolve(ctx: Ctx, world: World): Plan {
   // An explicit effort suffix on the requested model beats every rule.
   if (requested.effort) config.effort = requested.effort;
 
+  // A role nobody routes on is a typo: it lands on the roleless arm and the
+  // agent silently never learns what it is. Say so.
+  if (c.role && !knownRoles().has(c.role)) {
+    warnings.push(`role '${c.role}' matches no route in rules.ts — launching with the roleless prompt`);
+  }
+
   warnings.push(...validate(config));
 
   return { ctx: c, arm, candidates, config, trace, warnings };
+}
+
+/** every role any route mentions — the set rules.ts actually knows */
+function knownRoles(): Set<string> {
+  const roles = new Set<string>();
+  for (const r of routes) for (const role of list(r.when.role)) if (role !== "*") roles.add(role);
+  for (const l of layers) for (const role of list(l.when?.role)) if (role !== "*") roles.add(role);
+  return roles;
 }
 
 /** Flag combinations the harness silently ignores. Drops the losing flag and
@@ -577,16 +584,9 @@ export function emitClaude(plan: Plan, world: World, opts: EmitOpts = {}): strin
     argv.push("--system-prompt-file", mustExist(c.systemPromptFile, "system prompt file"));
   }
 
-  // Skill preload: ONE startup directive at the head of the append stream.
-  // Claude Code has no preload flag — the Skill tool on turn one is the path.
+  // Nothing is synthesized here. A prompt is a file, written elsewhere; this
+  // only concatenates the pieces a layer asked for, in order.
   const pieces: Append[] = [...c.append];
-  const skills = [...new Set(c.skills.map((s) => s.trim().replace(/^\/+/, "")).filter(Boolean))];
-  if (skills.length > 0) {
-    const names = skills.map((s) => `/${s}`).join(", ");
-    pieces.unshift({
-      text: `<session-startup>\nBefore anything else, load these skills for this session: ${names}\n</session-startup>`,
-    });
-  }
   if (pieces.length > 0 && mine("append")) {
     if (pieces.length === 1 && "file" in pieces[0]) {
       // a lone file passes through untouched
