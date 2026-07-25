@@ -668,10 +668,14 @@ function matrixTable(rows: Row[], axes: Axes): string {
 function writeViewer(rows: Row[], axes: Axes, out: string): string {
   const template = resolvePath(ROOT, "matrix-viewer.html");
   if (!existsSync(template)) fail(`matrix viewer template not found: ${template}`);
-  const html = readFileSync(template, "utf8").replace(
-    "/*__MATRIX__*/null",
-    JSON.stringify({ generated: new Date().toISOString(), root: ROOT, axes, rows }),
-  );
+  // The JSON is inlined into a <script>. A value carrying "</script>" would
+  // close the block early, so every < goes in escaped — still valid JSON.
+  const data = JSON.stringify({ generated: new Date().toISOString(), root: ROOT, axes, rows })
+    .replace(/</g, "\\u003c")
+    .replace(/\u2028/g, "\\u2028")
+    .replace(/\u2029/g, "\\u2029");
+  // a function replacement keeps any $-sequence in the data literal intact
+  const html = readFileSync(template, "utf8").replace("/*__MATRIX__*/null", () => data);
   const path = expandPath(out, process.env);
   writeFileSync(path, html);
   return path;
