@@ -41,6 +41,7 @@ import {
   OWN_LAUNCHER_DEFAULTS,
   type Append,
   type Layer,
+  type Mcp,
   type When,
 } from "./rules.ts";
 
@@ -84,8 +85,8 @@ export type Config = {
   append: Append[];
   /** preloaded at session start via one startup directive */
   skills: string[];
-  /** file paths or inline JSON */
-  mcp: string[];
+  /** file paths, or the config object itself (serialized at emit) */
+  mcp: Mcp[];
   tools: string[];
   allowedTools: string[];
   disallowedTools: string[];
@@ -185,6 +186,22 @@ export function interpolate(s: string, ctx: Ctx, world: World): string {
   });
 }
 
+/** Interpolate every string inside a structure — keys and leaves alike.
+ *  This is how an mcp config is built: values go through JSON.stringify at
+ *  emit, so an env var carrying a quote cannot break out of its string. */
+export function interpolateDeep(v: unknown, ctx: Ctx, world: World): unknown {
+  if (typeof v === "string") return interpolate(v, ctx, world);
+  if (Array.isArray(v)) return v.map((x) => interpolateDeep(x, ctx, world));
+  if (v !== null && typeof v === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+      out[interpolate(k, ctx, world)] = interpolateDeep(val, ctx, world);
+    }
+    return out;
+  }
+  return v;
+}
+
 const expandPath = (p: string, env: Record<string, string | undefined>): string => {
   const home = env.HOME ?? "";
   let out = p;
@@ -281,9 +298,27 @@ const describe = (when?: When): string => {
 
 const EFFORTS = ["low", "medium", "high", "xhigh", "max"];
 
-/** claude-opus-4-8-xhigh → { model: "claude-opus-4-8", effort: "xhigh" } */
+const ONE_M = "[1m]";
+const isClaude = (model: string): boolean => model.startsWith("claude-");
+
+/** Every claude id carries [1m]; without it the session reports a 200k
+ *  context window. An id that already names a variant is left alone. */
+export const withOneM = (model: string): string =>
+  isClaude(model) && !model.includes("[") ? model + ONE_M : model;
+
+/** What the router matches on: the id without its [1m] postfix. */
+export const bareId = (model: string): string =>
+  model.endsWith(ONE_M) ? model.slice(0, -ONE_M.length) : model;
+
+/**
+ * claude-opus-4-8-xhigh → { model: "claude-opus-4-8", effort: "xhigh" }
+ *
+ * Only claude ids carry this convention. An endpoint id is opaque — splitting
+ * `gpt-5.6-sol-max` would invent a model that does not exist.
+ */
 export function splitEffort(model?: string): { model?: string; effort?: string } {
   if (!model) return {};
+  if (!isClaude(model)) return { model };
   for (const e of EFFORTS) {
     if (model.endsWith(`-${e}`)) return { model: model.slice(0, -(e.length + 1)), effort: e };
   }
@@ -315,7 +350,11 @@ function applyLayer(c: Config, l: Layer, ctx: Ctx, world: World, trace: string[]
     did.push(`skills ${l.skills.join(",")}`);
   }
   if (l.mcp?.length && !taken(c.mcp.length > 0, "mcp")) {
-    c.mcp.push(...l.mcp.map(I));
+    c.mcp.push(
+      ...l.mcp.map((m) =>
+        typeof m === "string" ? I(m) : (interpolateDeep(m, ctx, world) as Record<string, unknown>),
+      ),
+    );
     did.push(`mcp ×${l.mcp.length}`);
   }
   if (l.tools?.length && !taken(c.tools.length > 0, "tools")) {
@@ -357,9 +396,14 @@ export function resolve(ctx: Ctx, world: World): Plan {
   const warnings: string[] = [];
 
   const requested = splitEffort(ctx.model);
-  const c: Ctx = { ...ctx, model: requested.model };
+  // What we would emit for an explicit request, and what the router matches on.
+  const asked = requested.model ? withOneM(requested.model) : undefined;
+  const c: Ctx = { ...ctx, model: requested.model ? bareId(requested.model) : undefined };
   if (requested.effort) {
     trace.push(`model ${ctx.model}: effort suffix → ${requested.model} + effort ${requested.effort}`);
+  }
+  if (asked && asked !== requested.model) {
+    trace.push(`model ${requested.model}: normalized to ${asked} (a claude id without [1m] reports 200k)`);
   }
 
   const config: Config = {
@@ -389,13 +433,21 @@ export function resolve(ctx: Ctx, world: World): Plan {
   if (arm) {
     const a = arms[arm];
     if (!a) fail(`rules.ts: route names unknown arm '${arm}'`);
-    config.model = a.model;
+    // An explicitly requested id is emitted as asked, so a variant spelling
+    // survives; the arm then supplies only the prompt and the effort. A pinned
+    // arm ignores the request — its endpoint speaks no other id.
+    const kept = asked !== undefined && !a.pin;
+    config.model = kept ? asked : a.model;
     if (a.prompt) config.systemPromptFile = a.prompt;
     if (a.effort) config.effort = a.effort;
-    trace.push(`arm ${arm}: model ${a.model}${a.prompt ? `, prompt ${a.prompt}` : ""}`);
-  } else if (c.model) {
-    config.model = c.model;
-    trace.push(`no route matched — model ${c.model} passes through as a real id`);
+    trace.push(
+      `arm ${arm}: model ${config.model}` +
+        `${kept ? " (as requested)" : a.pin && asked ? " (pinned — request ignored)" : ""}` +
+        `${a.prompt ? `, prompt ${a.prompt}` : ""}`,
+    );
+  } else if (asked) {
+    config.model = asked;
+    trace.push(`no route matched — model ${asked} passes through as a real id`);
   } else {
     trace.push("no route matched, no model requested — harness keeps its own model");
   }
@@ -447,41 +499,66 @@ const FAMILIES: Record<string, string[]> = {
   tools: ["--tools"],
   allowedTools: ["--allowedTools", "--allowed-tools"],
   disallowedTools: ["--disallowedTools", "--disallowed-tools"],
+  excludeDynamicSections: ["--exclude-dynamic-system-prompt-sections"],
   verbose: ["--verbose"],
 };
 
-// Referenced files that don't exist fail loud — a typo'd path must not
-// silently shrink the prompt.
-const mustExist = (p: string, what: string, env: Record<string, string | undefined>): string => {
-  const abs = expandPath(p, env);
-  if (!existsSync(abs)) fail(`${what} not found: ${abs}`);
-  return abs;
-};
+/** Families that carry a stream rather than one value. Suppressing one drops
+ *  everything the rules wanted to add, so it is a warning, not a trace line. */
+const ACCUMULATORS = new Set(["append", "mcp", "tools", "allowedTools", "disallowedTools"]);
 
-// .rendered/ holds content-hashed compositions — gitignored, safe to delete.
-const writeRendered = (prefix: string, content: string): string => {
-  const dir = resolvePath(ROOT, ".rendered");
-  mkdirSync(dir, { recursive: true });
-  const h = createHash("sha256").update(content).digest("hex").slice(0, 12);
-  const path = resolvePath(dir, `${prefix}-${h}.md`);
-  writeFileSync(path, content);
-  return path;
-};
+/** `dry` renders without touching disk: nothing is written, and a missing
+ *  file becomes a warning instead of exiting. That is what lets `matrix`
+ *  render combinations this machine does not have. */
+export type EmitOpts = { dry?: boolean };
 
-export function emitClaude(plan: Plan, world: World): string[] {
+export function emitClaude(plan: Plan, world: World, opts: EmitOpts = {}): string[] {
   const c = plan.config;
   const env = world.env;
   const given = plan.ctx.argv ?? [];
   const argv: string[] = [];
 
+  // Referenced files that don't exist fail loud — a typo'd path must not
+  // silently shrink the prompt.
+  const mustExist = (p: string, what: string): string => {
+    if (p.split("/").includes("..")) {
+      fail(`${what}: a path may not climb out with '..' — ${p}`);
+    }
+    const abs = expandPath(p, env);
+    if (!existsSync(abs)) {
+      if (!opts.dry) fail(`${what} not found: ${abs}`);
+      plan.warnings.push(`${what} not found: ${abs}`);
+    }
+    return abs;
+  };
+
+  // .rendered/ holds content-hashed compositions — gitignored, safe to delete.
+  // The name is the content hash, so a dry render names the same file it would
+  // have written.
+  const writeRendered = (prefix: string, content: string): string => {
+    const dir = resolvePath(ROOT, ".rendered");
+    const h = createHash("sha256").update(content).digest("hex").slice(0, 12);
+    const path = resolvePath(dir, `${prefix}-${h}.md`);
+    if (!opts.dry) {
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(path, content);
+    }
+    return path;
+  };
+
+  const readPiece = (p: string): string => {
+    const abs = mustExist(p, "append file");
+    return existsSync(abs) ? readFileSync(abs, "utf8").trim() : "";
+  };
+
   const mine = (family: string): boolean => {
     const flags = FAMILIES[family];
     const clash = flags.find((f) => given.some((a) => a === f || a.startsWith(`${f}=`)));
-    if (clash) {
-      plan.trace.push(`emit: caller passed ${clash} — leaving ${family} alone`);
-      return false;
-    }
-    return true;
+    if (!clash) return true;
+    const note = `caller passed ${clash} — the rules' ${family} is not applied`;
+    if (ACCUMULATORS.has(family)) plan.warnings.push(note);
+    plan.trace.push(`emit: ${note}`);
+    return false;
   };
 
   if (c.model !== undefined && mine("model")) {
@@ -490,9 +567,14 @@ export function emitClaude(plan: Plan, world: World): string[] {
     }
     argv.push("--model", c.model);
   }
-  if (c.effort && mine("effort")) argv.push("--effort", c.effort);
+  if (c.effort && mine("effort")) {
+    if (!EFFORTS.includes(c.effort)) {
+      fail(`effort '${c.effort}' is not one of ${EFFORTS.join(", ")} — fix it in rules.ts`);
+    }
+    argv.push("--effort", c.effort);
+  }
   if (c.systemPromptFile && mine("systemPrompt")) {
-    argv.push("--system-prompt-file", mustExist(c.systemPromptFile, "system prompt file", env));
+    argv.push("--system-prompt-file", mustExist(c.systemPromptFile, "system prompt file"));
   }
 
   // Skill preload: ONE startup directive at the head of the append stream.
@@ -508,14 +590,10 @@ export function emitClaude(plan: Plan, world: World): string[] {
   if (pieces.length > 0 && mine("append")) {
     if (pieces.length === 1 && "file" in pieces[0]) {
       // a lone file passes through untouched
-      argv.push("--append-system-prompt-file", mustExist(pieces[0].file, "append file", env));
+      argv.push("--append-system-prompt-file", mustExist(pieces[0].file, "append file"));
     } else {
       const text = pieces
-        .map((p) =>
-          "text" in p
-            ? p.text.trim()
-            : readFileSync(mustExist(p.file, "append file", env), "utf8").trim(),
-        )
+        .map((p) => ("text" in p ? p.text.trim() : readPiece(p.file)))
         .filter(Boolean)
         .join("\n\n");
       argv.push("--append-system-prompt-file", writeRendered("append", `${text}\n`));
@@ -527,7 +605,11 @@ export function emitClaude(plan: Plan, world: World): string[] {
   // that follows, including the user's prompt — so these are always emitted
   // as ONE --flag=value token.
   if (c.mcp.length > 0 && mine("mcp")) {
-    for (const m of c.mcp) argv.push(`--mcp-config=${mcpValue(m, env)}`);
+    for (const m of c.mcp) {
+      // A path is checked; an object is serialized, which is what makes an
+      // interpolated value structurally unable to escape its string.
+      argv.push(`--mcp-config=${typeof m === "string" ? mustExist(m, "mcp config file") : JSON.stringify(m)}`);
+    }
   }
   if (c.tools.length > 0 && mine("tools")) argv.push(`--tools=${c.tools.join(",")}`);
   if (c.allowedTools.length > 0 && mine("allowedTools")) {
@@ -537,24 +619,12 @@ export function emitClaude(plan: Plan, world: World): string[] {
     argv.push(`--disallowedTools=${c.disallowedTools.join(",")}`);
   }
 
-  if (c.excludeDynamicSections) argv.push("--exclude-dynamic-system-prompt-sections");
+  if (c.excludeDynamicSections && mine("excludeDynamicSections")) {
+    argv.push("--exclude-dynamic-system-prompt-sections");
+  }
   if (c.verbose === true && mine("verbose")) argv.push("--verbose");
   argv.push(...c.extraArgs);
   return argv;
-}
-
-/** An mcp entry is either inline JSON or a file path. Both must be real. */
-function mcpValue(entry: string, env: Record<string, string | undefined>): string {
-  const v = entry.trim();
-  if (v.startsWith("{")) {
-    try {
-      JSON.parse(v);
-    } catch (e) {
-      fail(`rules.ts: inline mcp config is not valid JSON (${e}) — ${v.slice(0, 120)}`);
-    }
-    return v;
-  }
-  return mustExist(v, "mcp config file", env);
 }
 
 export function emitCodex(_plan: Plan, _world: World): string[] {
@@ -564,9 +634,9 @@ export function emitCodex(_plan: Plan, _world: World): string[] {
   return fail("harness=codex: emit not implemented — fill in emitCodex() in launch.ts");
 }
 
-export function render(ctx: Ctx, world: World): { argv: string[]; plan: Plan } {
+export function render(ctx: Ctx, world: World, opts: EmitOpts = {}): { argv: string[]; plan: Plan } {
   const plan = resolve(ctx, world);
-  const argv = ctx.harness === "codex" ? emitCodex(plan, world) : emitClaude(plan, world);
+  const argv = ctx.harness === "codex" ? emitCodex(plan, world) : emitClaude(plan, world, opts);
   return { argv, plan };
 }
 
@@ -607,7 +677,8 @@ export function buildMatrix(axes: Axes, world: World): Row[] {
           if (role) ctx.role = role;
           if (model) ctx.model = model;
           if (cwd) ctx.cwd = cwd;
-          const { argv, plan } = render(ctx, world);
+          // dry: a matrix run inspects, it never writes
+          const { argv, plan } = render(ctx, world, { dry: true });
           rows.push({
             profile,
             role,
@@ -636,15 +707,20 @@ const flagValue = (argv: string[], flag: string): string => {
 const short = (p: string): string => (p ? p.replace(`${ROOT}/`, "") : "");
 
 function matrixTable(rows: Row[], axes: Axes): string {
+  // Only the flags the dedicated columns already show are hidden from extras;
+  // the append file is NOT one of them — dropping it would let the role brief
+  // disappear without the table changing.
+  const shown = new Set(["--model", "--effort", "--system-prompt-file"]);
+  const multi = rows.some((r) => r.candidates.length > 1);
   const head = ["profile", "role", "model in", "cwd", "arm", "model out", "effort", "prompt", "extras"];
+  if (multi) head.splice(5, 0, "candidates");
   const body = rows.map((r) => {
-    const known = new Set(["--model", "--effort", "--system-prompt-file", "--append-system-prompt-file"]);
     const extras = r.argv.filter((a, i) => {
-      if (known.has(a)) return false;
-      if (i > 0 && known.has(r.argv[i - 1])) return false;
+      if (shown.has(a)) return false;
+      if (i > 0 && shown.has(r.argv[i - 1])) return false;
       return true;
     });
-    return [
+    const cells = [
       r.profile || "—",
       r.role || "—",
       r.model || "—",
@@ -653,8 +729,10 @@ function matrixTable(rows: Row[], axes: Axes): string {
       flagValue(r.argv, "--model") || "—",
       flagValue(r.argv, "--effort") || "—",
       short(flagValue(r.argv, "--system-prompt-file")) || "—",
-      extras.map((e) => (e.length > 28 ? `${e.slice(0, 27)}…` : e)).join(" ") || "—",
+      extras.map(short).map((e) => (e.length > 34 ? `${e.slice(0, 33)}…` : e)).join(" ") || "—",
     ];
+    if (multi) cells.splice(5, 0, r.candidates.length > 1 ? r.candidates.join("|") : "—");
+    return cells;
   });
   const widths = head.map((h, i) => Math.max(h.length, ...body.map((r) => r[i].length)));
   const line = (cells: string[]) => cells.map((c, i) => c.padEnd(widths[i])).join("  ").trimEnd();
@@ -665,18 +743,19 @@ function matrixTable(rows: Row[], axes: Axes): string {
   return [axisNote, "", line(head), line(widths.map((w) => "─".repeat(w))), ...body.map(line)].join("\n");
 }
 
-function writeViewer(rows: Row[], axes: Axes, out: string): string {
+function writeViewer(rows: Row[], axes: Axes, out: string, generated: string): string {
   const template = resolvePath(ROOT, "matrix-viewer.html");
   if (!existsSync(template)) fail(`matrix viewer template not found: ${template}`);
   // The JSON is inlined into a <script>. A value carrying "</script>" would
   // close the block early, so every < goes in escaped — still valid JSON.
-  const data = JSON.stringify({ generated: new Date().toISOString(), root: ROOT, axes, rows })
+  const data = JSON.stringify({ generated, root: ROOT, axes, rows })
     .replace(/</g, "\\u003c")
     .replace(/\u2028/g, "\\u2028")
     .replace(/\u2029/g, "\\u2029");
   // a function replacement keeps any $-sequence in the data literal intact
   const html = readFileSync(template, "utf8").replace("/*__MATRIX__*/null", () => data);
-  const path = expandPath(out, process.env);
+  // an output path is the caller's, so it resolves against their cwd
+  const path = isAbsolute(out) || out.startsWith("~") ? expandPath(out, process.env) : resolvePath(process.cwd(), out);
   writeFileSync(path, html);
   return path;
 }
@@ -776,7 +855,15 @@ function installedProfiles(env: Record<string, string | undefined>): string[] {
     .sort();
 }
 
-if (import.meta.main) {
+// `import.meta.main` only landed in Node 24.2, and a silently-skipped CLI
+// block would degrade every wrapper launch to "unparseable render output".
+// Comparing argv[1] to this file works on every runtime that can load it.
+const isMain =
+  (import.meta as { main?: boolean }).main ??
+  (process.argv[1] !== undefined &&
+    resolvePath(process.argv[1]) === resolvePath(new URL(import.meta.url).pathname));
+
+if (isMain) {
   const p = parseArgs(process.argv.slice(2));
   const world = realWorld();
   if (p.ownDefaults) world.ownLauncherDefaults = true;
@@ -822,7 +909,7 @@ if (import.meta.main) {
     // matrix must be reproducible: always take the first candidate
     const rows = buildMatrix(axes, { ...world, pick: (c) => c[0] });
     if (p.html) {
-      console.log(writeViewer(rows, axes, p.html));
+      console.log(writeViewer(rows, axes, p.html, new Date().toISOString()));
     } else if (p.outputGiven && p.output === "json") {
       console.log(JSON.stringify({ axes, rows }, null, 2));
     } else {

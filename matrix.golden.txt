@@ -1,52 +1,84 @@
-48 combinations — 12 profiles × 4 roles × 1 models × 1 cwds
+80 combinations — 5 profiles × 4 roles × 4 models × 1 cwds
 
-profile             role     model in  cwd  arm          model out            effort  prompt                          extras
-──────────────────  ───────  ────────  ───  ───────────  ───────────────────  ──────  ──────────────────────────────  ──────
-—                   —        —         —    —            —                    xhigh   —                               —
-—                   advisor  —         —    fable        claude-fable-5       xhigh   prompts/SYSTEM_PROMPT.fable.md  —
-—                   leader   —         —    fable        claude-fable-5       xhigh   prompts/SYSTEM_PROMPT.fable.md  —
-—                   worker   —         —    opus-1m      claude-opus-4-8[1m]  xhigh   prompts/SYSTEM_PROMPT.opus.md   —
-blusher-83savvy     —        —         —    —            —                    xhigh   —                               —
-blusher-83savvy     advisor  —         —    fable        claude-fable-5       xhigh   prompts/SYSTEM_PROMPT.fable.md  —
-blusher-83savvy     leader   —         —    fable        claude-fable-5       xhigh   prompts/SYSTEM_PROMPT.fable.md  —
-blusher-83savvy     worker   —         —    opus-1m      claude-opus-4-8[1m]  xhigh   prompts/SYSTEM_PROMPT.opus.md   —
-codex               —        —         —    gpt-5.6-sol  gpt-5.6-sol[1m]      xhigh   prompts/SYSTEM_PROMPT.fable.md  —
-codex               advisor  —         —    gpt-5.6-sol  gpt-5.6-sol[1m]      xhigh   prompts/SYSTEM_PROMPT.fable.md  —
-codex               leader   —         —    gpt-5.6-sol  gpt-5.6-sol[1m]      xhigh   prompts/SYSTEM_PROMPT.fable.md  —
-codex               worker   —         —    gpt-5.6-sol  gpt-5.6-sol[1m]      xhigh   prompts/SYSTEM_PROMPT.fable.md  —
-colder_therapy0i    —        —         —    —            —                    xhigh   —                               —
-colder_therapy0i    advisor  —         —    fable        claude-fable-5       xhigh   prompts/SYSTEM_PROMPT.fable.md  —
-colder_therapy0i    leader   —         —    fable        claude-fable-5       xhigh   prompts/SYSTEM_PROMPT.fable.md  —
-colder_therapy0i    worker   —         —    opus-1m      claude-opus-4-8[1m]  xhigh   prompts/SYSTEM_PROMPT.opus.md   —
-crusted_standby_0n  —        —         —    —            —                    xhigh   —                               —
-crusted_standby_0n  advisor  —         —    fable        claude-fable-5       xhigh   prompts/SYSTEM_PROMPT.fable.md  —
-crusted_standby_0n  leader   —         —    fable        claude-fable-5       xhigh   prompts/SYSTEM_PROMPT.fable.md  —
-crusted_standby_0n  worker   —         —    opus-1m      claude-opus-4-8[1m]  xhigh   prompts/SYSTEM_PROMPT.opus.md   —
-dewiest_gulp        —        —         —    —            —                    xhigh   —                               —
-dewiest_gulp        advisor  —         —    fable        claude-fable-5       xhigh   prompts/SYSTEM_PROMPT.fable.md  —
-dewiest_gulp        leader   —         —    fable        claude-fable-5       xhigh   prompts/SYSTEM_PROMPT.fable.md  —
-dewiest_gulp        worker   —         —    opus-1m      claude-opus-4-8[1m]  xhigh   prompts/SYSTEM_PROMPT.opus.md   —
-does_bannock_6u     —        —         —    opus-1m      claude-opus-4-8[1m]  xhigh   prompts/SYSTEM_PROMPT.opus.md   —
-does_bannock_6u     advisor  —         —    fable        claude-fable-5       xhigh   prompts/SYSTEM_PROMPT.fable.md  —
-does_bannock_6u     leader   —         —    fable        claude-fable-5       xhigh   prompts/SYSTEM_PROMPT.fable.md  —
-does_bannock_6u     worker   —         —    opus-1m      claude-opus-4-8[1m]  xhigh   prompts/SYSTEM_PROMPT.opus.md   —
-grid-mullein1b      —        —         —    —            —                    xhigh   —                               —
-grid-mullein1b      advisor  —         —    fable        claude-fable-5       xhigh   prompts/SYSTEM_PROMPT.fable.md  —
-grid-mullein1b      leader   —         —    fable        claude-fable-5       xhigh   prompts/SYSTEM_PROMPT.fable.md  —
-grid-mullein1b      worker   —         —    opus-1m      claude-opus-4-8[1m]  xhigh   prompts/SYSTEM_PROMPT.opus.md   —
-grok                —        —         —    grok-4.5     grok-4.5[1m]         xhigh   prompts/SYSTEM_PROMPT.fable.md  —
-grok                advisor  —         —    grok-4.5     grok-4.5[1m]         xhigh   prompts/SYSTEM_PROMPT.fable.md  —
-grok                leader   —         —    grok-4.5     grok-4.5[1m]         xhigh   prompts/SYSTEM_PROMPT.fable.md  —
-grok                worker   —         —    grok-4.5     grok-4.5[1m]         xhigh   prompts/SYSTEM_PROMPT.fable.md  —
-kimi-k3-moonshot    —        —         —    k3           k3[1m]               xhigh   prompts/SYSTEM_PROMPT.fable.md  —
-kimi-k3-moonshot    advisor  —         —    k3           k3[1m]               xhigh   prompts/SYSTEM_PROMPT.fable.md  —
-kimi-k3-moonshot    leader   —         —    k3           k3[1m]               xhigh   prompts/SYSTEM_PROMPT.fable.md  —
-kimi-k3-moonshot    worker   —         —    k3           k3[1m]               xhigh   prompts/SYSTEM_PROMPT.fable.md  —
-monk0foreleg        —        —         —    —            —                    xhigh   —                               —
-monk0foreleg        advisor  —         —    fable        claude-fable-5       xhigh   prompts/SYSTEM_PROMPT.fable.md  —
-monk0foreleg        leader   —         —    fable        claude-fable-5       xhigh   prompts/SYSTEM_PROMPT.fable.md  —
-monk0foreleg        worker   —         —    opus-1m      claude-opus-4-8[1m]  xhigh   prompts/SYSTEM_PROMPT.opus.md   —
-vows_yogic_9k       —        —         —    —            —                    xhigh   —                               —
-vows_yogic_9k       advisor  —         —    fable        claude-fable-5       xhigh   prompts/SYSTEM_PROMPT.fable.md  —
-vows_yogic_9k       leader   —         —    fable        claude-fable-5       xhigh   prompts/SYSTEM_PROMPT.fable.md  —
-vows_yogic_9k       worker   —         —    opus-1m      claude-opus-4-8[1m]  xhigh   prompts/SYSTEM_PROMPT.opus.md   —
+profile           role     model in               cwd  arm          model out              effort  prompt                          extras
+────────────────  ───────  ─────────────────────  ───  ───────────  ─────────────────────  ──────  ──────────────────────────────  ────────────────────────────────────────────────────────────
+—                 —        —                      —    opus-5       claude-opus-5[1m]      xhigh   prompts/opus-5-stance.md        —
+—                 —        claude-opus-5          —    opus-5       claude-opus-5[1m]      xhigh   prompts/opus-5-stance.md        —
+—                 —        claude-opus-4-8[200k]  —    opus-4-8     claude-opus-4-8[200k]  xhigh   prompts/opus-4-operator.md      —
+—                 —        sonnet                 —    —            sonnet                 xhigh   —                               —
+—                 advisor  —                      —    fable        claude-fable-5[1m]     xhigh   prompts/fable-5-calibration.md  --append-system-prompt-file .rendered/append-ce344689e7d2.md
+—                 advisor  claude-opus-5          —    opus-5       claude-opus-5[1m]      xhigh   prompts/opus-5-stance.md        --append-system-prompt-file .rendered/append-ce344689e7d2.md
+—                 advisor  claude-opus-4-8[200k]  —    opus-4-8     claude-opus-4-8[200k]  xhigh   prompts/opus-4-operator.md      --append-system-prompt-file .rendered/append-ce344689e7d2.md
+—                 advisor  sonnet                 —    —            sonnet                 xhigh   —                               --append-system-prompt-file .rendered/append-ce344689e7d2.md
+—                 leader   —                      —    opus-5       claude-opus-5[1m]      xhigh   prompts/opus-5-stance.md        --append-system-prompt-file .rendered/append-4842f005183f.md
+—                 leader   claude-opus-5          —    opus-5       claude-opus-5[1m]      xhigh   prompts/opus-5-stance.md        --append-system-prompt-file .rendered/append-4842f005183f.md
+—                 leader   claude-opus-4-8[200k]  —    opus-4-8     claude-opus-4-8[200k]  xhigh   prompts/opus-4-operator.md      --append-system-prompt-file .rendered/append-4842f005183f.md
+—                 leader   sonnet                 —    —            sonnet                 xhigh   —                               --append-system-prompt-file .rendered/append-4842f005183f.md
+—                 worker   —                      —    opus-5       claude-opus-5[1m]      xhigh   prompts/opus-5-stance.md        --append-system-prompt-file .rendered/append-2eeb9a877933.md
+—                 worker   claude-opus-5          —    opus-5       claude-opus-5[1m]      xhigh   prompts/opus-5-stance.md        --append-system-prompt-file .rendered/append-2eeb9a877933.md
+—                 worker   claude-opus-4-8[200k]  —    opus-4-8     claude-opus-4-8[200k]  xhigh   prompts/opus-4-operator.md      --append-system-prompt-file .rendered/append-2eeb9a877933.md
+—                 worker   sonnet                 —    —            sonnet                 xhigh   —                               --append-system-prompt-file .rendered/append-2eeb9a877933.md
+codex             —        —                      —    gpt-5.6-sol  gpt-5.6-sol[1m]        xhigh   prompts/fable-5-calibration.md  —
+codex             —        claude-opus-5          —    gpt-5.6-sol  gpt-5.6-sol[1m]        xhigh   prompts/fable-5-calibration.md  —
+codex             —        claude-opus-4-8[200k]  —    gpt-5.6-sol  gpt-5.6-sol[1m]        xhigh   prompts/fable-5-calibration.md  —
+codex             —        sonnet                 —    gpt-5.6-sol  gpt-5.6-sol[1m]        xhigh   prompts/fable-5-calibration.md  —
+codex             advisor  —                      —    gpt-5.6-sol  gpt-5.6-sol[1m]        xhigh   prompts/fable-5-calibration.md  --append-system-prompt-file .rendered/append-ce344689e7d2.md
+codex             advisor  claude-opus-5          —    gpt-5.6-sol  gpt-5.6-sol[1m]        xhigh   prompts/fable-5-calibration.md  --append-system-prompt-file .rendered/append-ce344689e7d2.md
+codex             advisor  claude-opus-4-8[200k]  —    gpt-5.6-sol  gpt-5.6-sol[1m]        xhigh   prompts/fable-5-calibration.md  --append-system-prompt-file .rendered/append-ce344689e7d2.md
+codex             advisor  sonnet                 —    gpt-5.6-sol  gpt-5.6-sol[1m]        xhigh   prompts/fable-5-calibration.md  --append-system-prompt-file .rendered/append-ce344689e7d2.md
+codex             leader   —                      —    gpt-5.6-sol  gpt-5.6-sol[1m]        xhigh   prompts/fable-5-calibration.md  --append-system-prompt-file .rendered/append-4842f005183f.md
+codex             leader   claude-opus-5          —    gpt-5.6-sol  gpt-5.6-sol[1m]        xhigh   prompts/fable-5-calibration.md  --append-system-prompt-file .rendered/append-4842f005183f.md
+codex             leader   claude-opus-4-8[200k]  —    gpt-5.6-sol  gpt-5.6-sol[1m]        xhigh   prompts/fable-5-calibration.md  --append-system-prompt-file .rendered/append-4842f005183f.md
+codex             leader   sonnet                 —    gpt-5.6-sol  gpt-5.6-sol[1m]        xhigh   prompts/fable-5-calibration.md  --append-system-prompt-file .rendered/append-4842f005183f.md
+codex             worker   —                      —    gpt-5.6-sol  gpt-5.6-sol[1m]        xhigh   prompts/fable-5-calibration.md  --append-system-prompt-file .rendered/append-2eeb9a877933.md
+codex             worker   claude-opus-5          —    gpt-5.6-sol  gpt-5.6-sol[1m]        xhigh   prompts/fable-5-calibration.md  --append-system-prompt-file .rendered/append-2eeb9a877933.md
+codex             worker   claude-opus-4-8[200k]  —    gpt-5.6-sol  gpt-5.6-sol[1m]        xhigh   prompts/fable-5-calibration.md  --append-system-prompt-file .rendered/append-2eeb9a877933.md
+codex             worker   sonnet                 —    gpt-5.6-sol  gpt-5.6-sol[1m]        xhigh   prompts/fable-5-calibration.md  --append-system-prompt-file .rendered/append-2eeb9a877933.md
+does_bannock_6u   —        —                      —    opus-5       claude-opus-5[1m]      xhigh   prompts/opus-5-stance.md        —
+does_bannock_6u   —        claude-opus-5          —    opus-5       claude-opus-5[1m]      xhigh   prompts/opus-5-stance.md        —
+does_bannock_6u   —        claude-opus-4-8[200k]  —    opus-4-8     claude-opus-4-8[200k]  xhigh   prompts/opus-4-operator.md      —
+does_bannock_6u   —        sonnet                 —    —            sonnet                 xhigh   —                               —
+does_bannock_6u   advisor  —                      —    opus-5       claude-opus-5[1m]      xhigh   prompts/opus-5-stance.md        --append-system-prompt-file .rendered/append-ce344689e7d2.md
+does_bannock_6u   advisor  claude-opus-5          —    opus-5       claude-opus-5[1m]      xhigh   prompts/opus-5-stance.md        --append-system-prompt-file .rendered/append-ce344689e7d2.md
+does_bannock_6u   advisor  claude-opus-4-8[200k]  —    opus-4-8     claude-opus-4-8[200k]  xhigh   prompts/opus-4-operator.md      --append-system-prompt-file .rendered/append-ce344689e7d2.md
+does_bannock_6u   advisor  sonnet                 —    —            sonnet                 xhigh   —                               --append-system-prompt-file .rendered/append-ce344689e7d2.md
+does_bannock_6u   leader   —                      —    opus-5       claude-opus-5[1m]      xhigh   prompts/opus-5-stance.md        --append-system-prompt-file .rendered/append-4842f005183f.md
+does_bannock_6u   leader   claude-opus-5          —    opus-5       claude-opus-5[1m]      xhigh   prompts/opus-5-stance.md        --append-system-prompt-file .rendered/append-4842f005183f.md
+does_bannock_6u   leader   claude-opus-4-8[200k]  —    opus-4-8     claude-opus-4-8[200k]  xhigh   prompts/opus-4-operator.md      --append-system-prompt-file .rendered/append-4842f005183f.md
+does_bannock_6u   leader   sonnet                 —    —            sonnet                 xhigh   —                               --append-system-prompt-file .rendered/append-4842f005183f.md
+does_bannock_6u   worker   —                      —    opus-5       claude-opus-5[1m]      xhigh   prompts/opus-5-stance.md        --append-system-prompt-file .rendered/append-2eeb9a877933.md
+does_bannock_6u   worker   claude-opus-5          —    opus-5       claude-opus-5[1m]      xhigh   prompts/opus-5-stance.md        --append-system-prompt-file .rendered/append-2eeb9a877933.md
+does_bannock_6u   worker   claude-opus-4-8[200k]  —    opus-4-8     claude-opus-4-8[200k]  xhigh   prompts/opus-4-operator.md      --append-system-prompt-file .rendered/append-2eeb9a877933.md
+does_bannock_6u   worker   sonnet                 —    —            sonnet                 xhigh   —                               --append-system-prompt-file .rendered/append-2eeb9a877933.md
+grok              —        —                      —    grok-4.5     grok-4.5[1m]           xhigh   prompts/fable-5-calibration.md  —
+grok              —        claude-opus-5          —    grok-4.5     grok-4.5[1m]           xhigh   prompts/fable-5-calibration.md  —
+grok              —        claude-opus-4-8[200k]  —    grok-4.5     grok-4.5[1m]           xhigh   prompts/fable-5-calibration.md  —
+grok              —        sonnet                 —    grok-4.5     grok-4.5[1m]           xhigh   prompts/fable-5-calibration.md  —
+grok              advisor  —                      —    grok-4.5     grok-4.5[1m]           xhigh   prompts/fable-5-calibration.md  --append-system-prompt-file .rendered/append-ce344689e7d2.md
+grok              advisor  claude-opus-5          —    grok-4.5     grok-4.5[1m]           xhigh   prompts/fable-5-calibration.md  --append-system-prompt-file .rendered/append-ce344689e7d2.md
+grok              advisor  claude-opus-4-8[200k]  —    grok-4.5     grok-4.5[1m]           xhigh   prompts/fable-5-calibration.md  --append-system-prompt-file .rendered/append-ce344689e7d2.md
+grok              advisor  sonnet                 —    grok-4.5     grok-4.5[1m]           xhigh   prompts/fable-5-calibration.md  --append-system-prompt-file .rendered/append-ce344689e7d2.md
+grok              leader   —                      —    grok-4.5     grok-4.5[1m]           xhigh   prompts/fable-5-calibration.md  --append-system-prompt-file .rendered/append-4842f005183f.md
+grok              leader   claude-opus-5          —    grok-4.5     grok-4.5[1m]           xhigh   prompts/fable-5-calibration.md  --append-system-prompt-file .rendered/append-4842f005183f.md
+grok              leader   claude-opus-4-8[200k]  —    grok-4.5     grok-4.5[1m]           xhigh   prompts/fable-5-calibration.md  --append-system-prompt-file .rendered/append-4842f005183f.md
+grok              leader   sonnet                 —    grok-4.5     grok-4.5[1m]           xhigh   prompts/fable-5-calibration.md  --append-system-prompt-file .rendered/append-4842f005183f.md
+grok              worker   —                      —    grok-4.5     grok-4.5[1m]           xhigh   prompts/fable-5-calibration.md  --append-system-prompt-file .rendered/append-2eeb9a877933.md
+grok              worker   claude-opus-5          —    grok-4.5     grok-4.5[1m]           xhigh   prompts/fable-5-calibration.md  --append-system-prompt-file .rendered/append-2eeb9a877933.md
+grok              worker   claude-opus-4-8[200k]  —    grok-4.5     grok-4.5[1m]           xhigh   prompts/fable-5-calibration.md  --append-system-prompt-file .rendered/append-2eeb9a877933.md
+grok              worker   sonnet                 —    grok-4.5     grok-4.5[1m]           xhigh   prompts/fable-5-calibration.md  --append-system-prompt-file .rendered/append-2eeb9a877933.md
+kimi-k3-moonshot  —        —                      —    k3           k3[1m]                 xhigh   prompts/fable-5-calibration.md  —
+kimi-k3-moonshot  —        claude-opus-5          —    k3           k3[1m]                 xhigh   prompts/fable-5-calibration.md  —
+kimi-k3-moonshot  —        claude-opus-4-8[200k]  —    k3           k3[1m]                 xhigh   prompts/fable-5-calibration.md  —
+kimi-k3-moonshot  —        sonnet                 —    k3           k3[1m]                 xhigh   prompts/fable-5-calibration.md  —
+kimi-k3-moonshot  advisor  —                      —    k3           k3[1m]                 xhigh   prompts/fable-5-calibration.md  --append-system-prompt-file .rendered/append-ce344689e7d2.md
+kimi-k3-moonshot  advisor  claude-opus-5          —    k3           k3[1m]                 xhigh   prompts/fable-5-calibration.md  --append-system-prompt-file .rendered/append-ce344689e7d2.md
+kimi-k3-moonshot  advisor  claude-opus-4-8[200k]  —    k3           k3[1m]                 xhigh   prompts/fable-5-calibration.md  --append-system-prompt-file .rendered/append-ce344689e7d2.md
+kimi-k3-moonshot  advisor  sonnet                 —    k3           k3[1m]                 xhigh   prompts/fable-5-calibration.md  --append-system-prompt-file .rendered/append-ce344689e7d2.md
+kimi-k3-moonshot  leader   —                      —    k3           k3[1m]                 xhigh   prompts/fable-5-calibration.md  --append-system-prompt-file .rendered/append-4842f005183f.md
+kimi-k3-moonshot  leader   claude-opus-5          —    k3           k3[1m]                 xhigh   prompts/fable-5-calibration.md  --append-system-prompt-file .rendered/append-4842f005183f.md
+kimi-k3-moonshot  leader   claude-opus-4-8[200k]  —    k3           k3[1m]                 xhigh   prompts/fable-5-calibration.md  --append-system-prompt-file .rendered/append-4842f005183f.md
+kimi-k3-moonshot  leader   sonnet                 —    k3           k3[1m]                 xhigh   prompts/fable-5-calibration.md  --append-system-prompt-file .rendered/append-4842f005183f.md
+kimi-k3-moonshot  worker   —                      —    k3           k3[1m]                 xhigh   prompts/fable-5-calibration.md  --append-system-prompt-file .rendered/append-2eeb9a877933.md
+kimi-k3-moonshot  worker   claude-opus-5          —    k3           k3[1m]                 xhigh   prompts/fable-5-calibration.md  --append-system-prompt-file .rendered/append-2eeb9a877933.md
+kimi-k3-moonshot  worker   claude-opus-4-8[200k]  —    k3           k3[1m]                 xhigh   prompts/fable-5-calibration.md  --append-system-prompt-file .rendered/append-2eeb9a877933.md
+kimi-k3-moonshot  worker   sonnet                 —    k3           k3[1m]                 xhigh   prompts/fable-5-calibration.md  --append-system-prompt-file .rendered/append-2eeb9a877933.md

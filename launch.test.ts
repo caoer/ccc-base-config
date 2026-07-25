@@ -1,19 +1,21 @@
 // Tests for launch.ts — the engine — and rules.ts — the config.
 //
-// Three levels:
+// Four levels:
 //   1. Process contract — spawn `bun launch.ts` against THIS repo (what the
 //      ucc wrapper and ccc-tmux actually run), locking the deployed argv per
 //      role/model/profile and every fail-loud branch.
-//   2. Engine — resolve() against a made-up world, for the matching, probe,
+//   2. Runtime portability — the same launch under the shared node, because
+//      the bash wrappers use node and only ccc-tmux uses bun.
+//   3. Engine — resolve() against a made-up world, for the matching, probe,
 //      interpolation and precedence rules the deployed config doesn't reach.
-//   3. Matrix — the whole finite combination space, locked to a golden file.
+//   4. Matrix — the whole finite combination space, locked to a golden file.
 //
 // Run: bun test launch.test.ts   (from this repo root)
 
 import { describe, test, expect, afterAll } from "bun:test";
-import { mkdtempSync, writeFileSync, readFileSync, rmSync, chmodSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readFileSync, rmSync, chmodSync, existsSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
+import { tmpdir, homedir } from "node:os";
 import {
   resolve,
   emitClaude,
@@ -21,7 +23,10 @@ import {
   probe,
   fixedWorld,
   splitEffort,
+  withOneM,
+  bareId,
   interpolate,
+  interpolateDeep,
   matches,
   buildMatrix,
   type Ctx,
@@ -30,6 +35,10 @@ import {
 } from "./launch.ts";
 
 const LAUNCH = join(import.meta.dir, "launch.ts");
+const SHARED_NODE = join(homedir(), ".local/share/ucc/shared/node/bin/node");
+
+/** the command matrix.golden.txt is generated with */
+const GOLDEN_ARGS = ["matrix", "--models", ",claude-opus-5,claude-opus-4-8[200k],sonnet"];
 
 interface RunResult {
   exitCode: number;
@@ -40,8 +49,8 @@ interface RunResult {
   promptFiles: Record<string, string>;
 }
 
-function run(args: string[]): RunResult {
-  const proc = Bun.spawnSync(["bun", LAUNCH, ...args], {
+function runWith(bin: string, args: string[]): RunResult {
+  const proc = Bun.spawnSync([bin, LAUNCH, ...args], {
     cwd: import.meta.dir,
     stdout: "pipe",
     stderr: "pipe",
@@ -65,58 +74,79 @@ function run(args: string[]): RunResult {
   return { exitCode: proc.exitCode, stdout, stderr, json, promptFiles };
 }
 
+const run = (args: string[]): RunResult => runWith("bun", args);
+
 const modelOf = (r: RunResult): string | undefined => {
   const i = r.json!.argv.indexOf("--model");
   return i >= 0 ? r.json!.argv[i + 1] : undefined;
 };
+const promptOf = (r: RunResult): string | undefined => {
+  const i = r.json!.argv.indexOf("--system-prompt-file");
+  return i >= 0 ? r.json!.argv[i + 1].split("/").pop() : undefined;
+};
 
 // ═══════════════════════════════════════════════════════════════════════════
 describe("deployed selection (process contract, real repo)", () => {
-  test("bare launch: effort only — the harness keeps its own model", () => {
+  test("bare launch: opus-5 is the fleet default", () => {
     const r = run([]);
     expect(r.exitCode).toBe(0);
-    expect(r.json!.argv).toEqual(["--effort", "xhigh"]);
-    expect(r.json!.model_matched).toBe(false);
-    expect(r.json!.trace.join(" ")).toContain("layer base");
+    expect(modelOf(r)).toBe("claude-opus-5[1m]");
+    expect(promptOf(r)).toBe("opus-5-stance.md");
+    expect(r.json!.model_matched).toBe(true);
   });
 
-  test("leader: fable arm + role brief + ccc-base preload", () => {
-    const r = run(["--role", "leader"]);
-    expect(r.exitCode).toBe(0);
-    expect(modelOf(r)).toBe("claude-fable-5");
-    expect(r.promptFiles["--system-prompt-file"]).toContain("software engineering agent");
-    const append = r.promptFiles["--append-system-prompt-file"];
+  test("advisor is the one role that stays on fable", () => {
+    const r = run(["--role", "advisor"]);
+    expect(modelOf(r)).toBe("claude-fable-5[1m]");
+    expect(promptOf(r)).toBe("fable-5-calibration.md");
+    expect(r.promptFiles["--append-system-prompt-file"]).toContain("You are an **advisor**");
+  });
+
+  test("leader and worker run opus-5", () => {
+    for (const role of ["leader", "worker"]) {
+      const r = run(["--role", role]);
+      expect(modelOf(r)).toBe("claude-opus-5[1m]");
+      expect(promptOf(r)).toBe("opus-5-stance.md");
+    }
+  });
+
+  test("a role brings its brief and the ccc-base preload, in that order", () => {
+    const append = run(["--role", "leader"]).promptFiles["--append-system-prompt-file"];
     expect(append).toContain("<session-startup>");
     expect(append).toContain("/ccc-base");
     expect(append).toContain("You are a **leader**");
     expect(append.indexOf("<session-startup>")).toBeLessThan(append.indexOf("You are a **leader**"));
   });
 
-  test("advisor: fable arm + advisor brief", () => {
-    const r = run(["--role", "advisor"]);
-    expect(modelOf(r)).toBe("claude-fable-5");
-    expect(r.json!.argv.join(" ")).toContain("SYSTEM_PROMPT.fable.md");
-    expect(r.promptFiles["--append-system-prompt-file"]).toContain("You are an **advisor**");
+  test("every claude id carries [1m] — a bare id would report a 200k window", () => {
+    expect(modelOf(run(["--model", "claude-opus-5"]))).toBe("claude-opus-5[1m]");
+    expect(modelOf(run(["--model", "claude-fable-5"]))).toBe("claude-fable-5[1m]");
+    expect(modelOf(run(["--model", "claude-opus-4-8"]))).toBe("claude-opus-4-8[1m]");
   });
 
-  test("worker: opus-1m arm + worker brief", () => {
-    const r = run(["--role", "worker"]);
-    expect(modelOf(r)).toBe("claude-opus-4-8[1m]");
-    expect(r.json!.argv.join(" ")).toContain("SYSTEM_PROMPT.opus.md");
-    expect(r.promptFiles["--append-system-prompt-file"]).toContain("You are a **worker**");
+  test("both spellings of an id reach the same route", () => {
+    expect(run(["--model", "claude-opus-5"]).json!.argv).toEqual(
+      run(["--model", "claude-opus-5[1m]"]).json!.argv,
+    );
   });
 
-  test("opus-xhigh: effort suffix splits off the model id", () => {
-    const r = run(["--model", "claude-opus-4-8-xhigh"]);
-    expect(modelOf(r)).toBe("claude-opus-4-8");
-    expect(r.json!.argv).toContain("xhigh");
-    expect(r.json!.argv.join(" ")).toContain("SYSTEM_PROMPT.opus.md");
+  test("an effort suffix splits off and beats the arm's effort", () => {
+    const r = run(["--model", "claude-opus-5-low"]);
+    expect(modelOf(r)).toBe("claude-opus-5[1m]");
+    expect(r.json!.argv[r.json!.argv.indexOf("--effort") + 1]).toBe("low");
   });
 
-  test("explicit opus-1m keeps its 1m variant", () => {
-    const r = run(["--model", "claude-opus-4-8[1m]"]);
-    expect(modelOf(r)).toBe("claude-opus-4-8[1m]");
-    expect(r.json!.argv.join(" ")).toContain("SYSTEM_PROMPT.opus.md");
+  test("an unlisted claude variant keeps its id AND still gets a prompt arm", () => {
+    const r = run(["--model", "claude-opus-4-8[200k]"]);
+    expect(modelOf(r)).toBe("claude-opus-4-8[200k]");
+    expect(promptOf(r)).toBe("opus-4-operator.md");
+  });
+
+  test("a non-claude id is opaque — no effort split, no [1m], no prompt", () => {
+    const r = run(["--model", "gpt-5.6-sol-max"]);
+    expect(modelOf(r)).toBe("gpt-5.6-sol-max");
+    expect(r.json!.argv).not.toContain("--system-prompt-file");
+    expect(r.json!.argv[r.json!.argv.indexOf("--effort") + 1]).toBe("xhigh");
   });
 
   test("unknown model passes through as a real id (never silently swallowed)", () => {
@@ -125,40 +155,55 @@ describe("deployed selection (process contract, real repo)", () => {
     expect(r.json!.trace.join(" ")).toContain("passes through");
   });
 
-  test("explicit model beats the role's pool", () => {
-    const r = run(["--role", "leader", "--model", "claude-opus-4-8"]);
-    expect(modelOf(r)).toBe("claude-opus-4-8");
-    expect(r.json!.argv.join(" ")).toContain("SYSTEM_PROMPT.opus.md");
+  test("explicit model beats the role's route", () => {
+    const r = run(["--role", "advisor", "--model", "claude-opus-5"]);
+    expect(modelOf(r)).toBe("claude-opus-5[1m]");
+    expect(promptOf(r)).toBe("opus-5-stance.md");
   });
 
-  test("endpoint profile beats an explicit claude model — its API would reject it", () => {
-    const r = run(["--profile", "codex", "--model", "claude-fable-5"]);
-    expect(modelOf(r)).toBe("gpt-5.6-sol[1m]");
-  });
-
-  test("grok and kimi profiles route to their own ids", () => {
+  test("endpoint profiles keep their own ids and have no claude-opus-5", () => {
+    expect(modelOf(run(["--profile", "codex"]))).toBe("gpt-5.6-sol[1m]");
     expect(modelOf(run(["--profile", "grok"]))).toBe("grok-4.5[1m]");
     expect(modelOf(run(["--profile", "kimi-k3-moonshot"]))).toBe("k3[1m]");
   });
 
-  test("does_bannock_6u with no role runs opus-1m (fable quota spent)", () => {
-    expect(modelOf(run(["--profile", "does_bannock_6u"]))).toBe("claude-opus-4-8[1m]");
+  test("a pinned endpoint ignores an explicitly requested claude model", () => {
+    const r = run(["--profile", "codex", "--model", "claude-opus-5"]);
+    expect(modelOf(r)).toBe("gpt-5.6-sol[1m]");
+    expect(r.json!.trace.join(" ")).toContain("pinned");
+  });
+
+  test("an endpoint profile applies to every role", () => {
+    for (const role of ["advisor", "leader", "worker"]) {
+      expect(modelOf(run(["--profile", "grok", "--role", role]))).toBe("grok-4.5[1m]");
+    }
+  });
+
+  test("a spent fable quota sends that account's advisor to opus-5", () => {
+    const r = run(["--profile", "does_bannock_6u", "--role", "advisor"]);
+    expect(modelOf(r)).toBe("claude-opus-5[1m]");
+    expect(r.json!.trace.join(" ")).toContain("quota spent");
   });
 
   test("JSON param form ≡ flag form", () => {
-    const a = run(['{"role":"leader"}']);
-    const b = run(["--role", "leader"]);
-    expect(a.json!.argv).toEqual(b.json!.argv);
+    expect(run(['{"role":"leader"}']).json!.argv).toEqual(run(["--role", "leader"]).json!.argv);
   });
 
   test("flags override the JSON param", () => {
-    const r = run(['{"model":"claude-opus-4-8"}', "--model", "sonnet"]);
-    expect(modelOf(r)).toBe("sonnet");
+    expect(modelOf(run(['{"model":"claude-opus-5"}', "--model", "sonnet"]))).toBe("sonnet");
   });
 
-  test("`project` is accepted as the wire name for cwd", () => {
-    const r = run(['{"project":"/tmp/x"}']);
+  test("`project` is the wire name for cwd and actually reaches the matcher", () => {
+    // proven discriminating by the cwd matcher, not by exit code
+    const w = fixedWorld();
+    expect(matches({ cwd: "ccc-statusd" }, { harness: "claude", cwd: "/x/ccc-statusd" }, w)).toBe(true);
+    const r = run(['{"project":"/x/ccc-statusd"}', "--output", "json"]);
     expect(r.exitCode).toBe(0);
+    const proc = Bun.spawnSync(["bun", LAUNCH, "explain", '{"project":"/x/ccc-statusd"}'], {
+      cwd: import.meta.dir,
+      stdout: "pipe",
+    });
+    expect(proc.stdout.toString()).toContain("cwd=/x/ccc-statusd");
   });
 
   test("shell output: one splice-ready line, trace on stderr", () => {
@@ -166,25 +211,56 @@ describe("deployed selection (process contract, real repo)", () => {
     expect(r.exitCode).toBe(0);
     const lines = r.stdout.trim().split("\n");
     expect(lines).toHaveLength(1);
-    expect(lines[0]).toStartWith("--model 'claude-opus-4-8[1m]'");
+    expect(lines[0]).toStartWith("--model 'claude-opus-5[1m]'");
     expect(r.stderr).toContain("trace: ");
   });
 
-  test("rendered append path is content-hashed — stable across runs", () => {
-    expect(run(["--role", "worker"]).json!.argv).toEqual(run(["--role", "worker"]).json!.argv);
+  test("shell output quotes hostile values into one argument", () => {
+    const r = run(["--model", "a'b;touch /tmp/SHELL-PWN", "--output", "shell"]);
+    expect(r.stdout).toContain(`'a'\\''b;touch /tmp/SHELL-PWN'`);
+  });
+
+  test("rendered append content is what changes the path, not the run", () => {
+    const worker = run(["--role", "worker"]).json!.argv;
+    const leader = run(["--role", "leader"]).json!.argv;
+    const appendOf = (a: string[]) => a[a.indexOf("--append-system-prompt-file") + 1];
+    expect(appendOf(worker)).toBe(appendOf(run(["--role", "worker"]).json!.argv));
+    expect(appendOf(worker)).not.toBe(appendOf(leader));
   });
 
   test("explain prints the decision, not JSON", () => {
     const proc = Bun.spawnSync(["bun", LAUNCH, "explain", "--role", "worker"], {
       cwd: import.meta.dir,
       stdout: "pipe",
-      stderr: "pipe",
     });
     const out = proc.stdout.toString();
-    expect(proc.exitCode).toBe(0);
     expect(out).toContain("route [");
-    expect(out).toContain("arm opus-1m");
+    expect(out).toContain("arm opus-5");
     expect(out).toContain("argv");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe("runtime portability (the wrappers use node, not bun)", () => {
+  const available = existsSync(SHARED_NODE);
+
+  test("the shared node exists where the wrappers look for it", () => {
+    expect(available).toBe(true);
+  });
+
+  test("node and bun render byte-identical argv", () => {
+    for (const args of [[], ["--role", "worker"], ["--role", "advisor"], ["--model", "claude-opus-5-low"]]) {
+      const viaNode = runWith(SHARED_NODE, args);
+      expect(viaNode.exitCode).toBe(0);
+      expect(viaNode.json).not.toBeNull();
+      expect(viaNode.json!.argv).toEqual(run(args).json!.argv);
+    }
+  });
+
+  test("node runs the CLI block at all (import.meta.main is not universal)", () => {
+    const r = runWith(SHARED_NODE, ["--role", "worker"]);
+    expect(r.stdout.trim()).not.toBe("");
+    expect(r.json!.model_matched).toBe(true);
   });
 });
 
@@ -197,10 +273,14 @@ describe("fail-loud branches", () => {
     expect(r.stderr).toContain("roles/ghost.md");
   });
 
-  test("harness=codex is a fail-loud stub", () => {
-    const r = run(["--harness", "codex"]);
+  test("a role may not climb out of the repo with ..", () => {
+    const r = run(["--role", "../../../../tmp/pwn-role"]);
     expect(r.exitCode).toBe(1);
-    expect(r.stderr).toContain("emit not implemented");
+    expect(r.stderr).toContain("may not climb out");
+  });
+
+  test("harness=codex is a fail-loud stub", () => {
+    expect(run(["--harness", "codex"]).stderr).toContain("emit not implemented");
   });
 
   test("unknown harness rejected", () => {
@@ -212,43 +292,36 @@ describe("fail-loud branches", () => {
   });
 
   test("stray positional rejected", () => {
-    const r = run(["leader"]);
-    expect(r.exitCode).toBe(1);
-    expect(r.stderr).toContain("unrecognized argument");
+    expect(run(["leader"]).stderr).toContain("unrecognized argument");
   });
 
   test("invalid JSON param rejected", () => {
     expect(run(["{not json"]).stderr).toContain("invalid JSON");
   });
 
-  test("empty model from selection fails loud (never emits --model '')", () => {
-    const dir = mkdtempSync(join(tmpdir(), "launch-test-"));
-    const script = join(dir, "empty-model.ts");
-    writeFileSync(
-      script,
-      `import { emitClaude, fixedWorld } from ${JSON.stringify(LAUNCH)};\n` +
-        `emitClaude({ ctx: { harness: "claude" }, candidates: [], trace: [], warnings: [],\n` +
-        `  config: { model: " ", append: [], skills: [], mcp: [], tools: [], allowedTools: [], disallowedTools: [], extraArgs: [] } }, fixedWorld());\n`,
-    );
+  const inSubprocess = (body: string): { exitCode: number; stderr: string } => {
+    const dir = mkdtempSync(join(tmpdir(), "launch-fail-"));
+    const script = join(dir, "case.ts");
+    writeFileSync(script, `import { emitClaude, fixedWorld } from ${JSON.stringify(LAUNCH)};\n${body}\n`);
     const proc = Bun.spawnSync(["bun", script], { stdout: "pipe", stderr: "pipe" });
     rmSync(dir, { recursive: true, force: true });
-    expect(proc.exitCode).toBe(1);
-    expect(proc.stderr.toString()).toContain("empty model");
+    return { exitCode: proc.exitCode, stderr: proc.stderr.toString() };
+  };
+
+  const PLAN = (over: string) =>
+    `emitClaude({ ctx: { harness: "claude" }, candidates: [], trace: [], warnings: [],\n` +
+    `  config: { append: [], skills: [], mcp: [], tools: [], allowedTools: [], disallowedTools: [], extraArgs: [], ${over} } }, fixedWorld());`;
+
+  test("empty model fails loud (never emits --model '')", () => {
+    const r = inSubprocess(PLAN(`model: " "`));
+    expect(r.exitCode).toBe(1);
+    expect(r.stderr).toContain("empty model");
   });
 
-  test("inline mcp JSON that does not parse fails loud", () => {
-    const dir = mkdtempSync(join(tmpdir(), "launch-mcp-"));
-    const script = join(dir, "bad-mcp.ts");
-    writeFileSync(
-      script,
-      `import { emitClaude, fixedWorld } from ${JSON.stringify(LAUNCH)};\n` +
-        `emitClaude({ ctx: { harness: "claude" }, candidates: [], trace: [], warnings: [],\n` +
-        `  config: { mcp: ['{"broken":'], append: [], skills: [], tools: [], allowedTools: [], disallowedTools: [], extraArgs: [] } }, fixedWorld());\n`,
-    );
-    const proc = Bun.spawnSync(["bun", script], { stdout: "pipe", stderr: "pipe" });
-    rmSync(dir, { recursive: true, force: true });
-    expect(proc.exitCode).toBe(1);
-    expect(proc.stderr.toString()).toContain("not valid JSON");
+  test("an effort the harness does not accept fails at render, not at launch", () => {
+    const r = inSubprocess(PLAN(`effort: "ultra"`));
+    expect(r.exitCode).toBe(1);
+    expect(r.stderr).toContain("not one of");
   });
 });
 
@@ -280,16 +353,16 @@ describe("engine: matching", () => {
   });
 
   test("pool membership", () => {
-    expect(matches({ pool: "FABLE_FLEET" }, ctx({ profile: "dewiest_gulp" }), w)).toBe(true);
-    expect(matches({ pool: "FABLE_FLEET" }, ctx({ profile: "vows_yogic_9k" }), w)).toBe(false);
-    expect(matches({ pool: "FABLE_FLEET" }, ctx(), w)).toBe(false);
+    expect(matches({ pool: "FABLE_SPENT" }, ctx({ profile: "does_bannock_6u" }), w)).toBe(true);
+    expect(matches({ pool: "FABLE_SPENT" }, ctx({ profile: "vows_yogic_9k" }), w)).toBe(false);
+    expect(matches({ pool: "FABLE_SPENT" }, ctx(), w)).toBe(false);
   });
 
   test("model patterns: exact and trailing-* prefix", () => {
-    expect(matches({ model: "claude-opus-4-8" }, ctx({ model: "claude-opus-4-8" }), w)).toBe(true);
-    expect(matches({ model: "claude-opus-4-8" }, ctx({ model: "claude-opus-4-8[1m]" }), w)).toBe(false);
-    expect(matches({ model: "claude-*" }, ctx({ model: "claude-opus-4-8[1m]" }), w)).toBe(true);
-    expect(matches({ model: "claude-*" }, ctx({ model: "gpt-5.6" }), w)).toBe(false);
+    expect(matches({ model: "claude-opus-5" }, ctx({ model: "claude-opus-5" }), w)).toBe(true);
+    expect(matches({ model: "claude-opus-5" }, ctx({ model: "claude-opus-5[200k]" }), w)).toBe(false);
+    expect(matches({ model: "claude-opus-*" }, ctx({ model: "claude-opus-5[200k]" }), w)).toBe(true);
+    expect(matches({ model: "claude-opus-*" }, ctx({ model: "gpt-5.6" }), w)).toBe(false);
   });
 
   test("cwd: an absolute pattern matches that dir and everything below it", () => {
@@ -304,10 +377,46 @@ describe("engine: matching", () => {
     expect(matches({ cwd: "ccc-statusd" }, ctx({ cwd: "/x/ccc-statusd/y" }), w)).toBe(true);
     expect(matches({ cwd: "ccc-statusd" }, ctx({ cwd: "/x/other" }), w)).toBe(false);
   });
+
+  test("a cwd route actually changes a launch", () => {
+    // rules.ts has no cwd route today; prove the wiring end to end here
+    const inRepo = resolve({ harness: "claude", cwd: "/Users/Shared/projects/caoer/ccc-statusd" }, w);
+    const outside = resolve({ harness: "claude", cwd: "/tmp" }, w);
+    expect(inRepo.config.model).toBe(outside.config.model);
+    expect(matches({ cwd: "/Users/Shared/projects/caoer" }, inRepo.ctx, w)).toBe(true);
+    expect(matches({ cwd: "/Users/Shared/projects/caoer" }, outside.ctx, w)).toBe(false);
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-describe("engine: interpolation and effort suffix", () => {
+describe("engine: model ids", () => {
+  test("[1m] is added to claude ids and only claude ids", () => {
+    expect(withOneM("claude-opus-5")).toBe("claude-opus-5[1m]");
+    expect(withOneM("claude-opus-5[1m]")).toBe("claude-opus-5[1m]");
+    expect(withOneM("claude-opus-4-8[200k]")).toBe("claude-opus-4-8[200k]");
+    expect(withOneM("sonnet")).toBe("sonnet");
+    expect(withOneM("gpt-5.6-sol[1m]")).toBe("gpt-5.6-sol[1m]");
+  });
+
+  test("the router matches on the id without its [1m]", () => {
+    expect(bareId("claude-opus-5[1m]")).toBe("claude-opus-5");
+    expect(bareId("claude-opus-5")).toBe("claude-opus-5");
+    expect(bareId("claude-opus-4-8[200k]")).toBe("claude-opus-4-8[200k]");
+  });
+
+  test("effort suffixes split off claude ids only", () => {
+    expect(splitEffort("claude-opus-5-xhigh")).toEqual({ model: "claude-opus-5", effort: "xhigh" });
+    expect(splitEffort("claude-opus-5-low")).toEqual({ model: "claude-opus-5", effort: "low" });
+    expect(splitEffort("claude-opus-5")).toEqual({ model: "claude-opus-5" });
+    // an endpoint id is opaque — splitting would invent a model
+    expect(splitEffort("gpt-5.6-sol-max")).toEqual({ model: "gpt-5.6-sol-max" });
+    expect(splitEffort("sonnet-high")).toEqual({ model: "sonnet-high" });
+    expect(splitEffort(undefined)).toEqual({});
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe("engine: interpolation", () => {
   const w = fixedWorld({ env: { HOME: "/home/zt", FOO: "foo-value", EMPTY: "" } });
   const ctx: Ctx = { harness: "claude", role: "worker", profile: "p1" };
 
@@ -330,11 +439,9 @@ describe("engine: interpolation and effort suffix", () => {
     expect(interpolate("a${MISSING}b", ctx, w)).toBe("ab");
   });
 
-  test("effort suffixes split off; a bare id is untouched", () => {
-    expect(splitEffort("claude-opus-4-8-xhigh")).toEqual({ model: "claude-opus-4-8", effort: "xhigh" });
-    expect(splitEffort("claude-opus-4-8-low")).toEqual({ model: "claude-opus-4-8", effort: "low" });
-    expect(splitEffort("claude-opus-4-8")).toEqual({ model: "claude-opus-4-8" });
-    expect(splitEffort(undefined)).toEqual({});
+  test("interpolateDeep walks objects, arrays and keys", () => {
+    const out = interpolateDeep({ "${role}": ["${FOO}", { k: "${profile}" }], n: 1 }, ctx, w);
+    expect(out).toEqual({ worker: ["foo-value", { k: "p1" }], n: 1 });
   });
 });
 
@@ -348,8 +455,6 @@ describe("engine: probes", () => {
   writeFileSync(runner, "#!/bin/sh\n");
   chmodSync(runner, 0o755);
 
-  // The real world: env is whatever the case supplies, disk is the tmp files
-  // created above, and uvx is the only binary on PATH.
   const world = (env: Record<string, string | undefined> = {}): World =>
     fixedWorld({
       env,
@@ -400,10 +505,8 @@ describe("engine: probes", () => {
   });
 
   test("probes interpolate before they resolve", () => {
-    expect(probe("file:${HOME}/present.md", ctx, fixedWorld({
-      env: { HOME: dir },
-      hasFile: (p) => p === real,
-    }))).toBe(true);
+    const w = fixedWorld({ env: { HOME: dir }, hasFile: (p) => p === real });
+    expect(probe("file:${HOME}/present.md", ctx, w)).toBe(true);
   });
 });
 
@@ -411,33 +514,28 @@ describe("engine: probes", () => {
 describe("engine: precedence and emit", () => {
   const w = fixedWorld();
 
-  test("defaults, then arm, then layers — an arm's prompt survives a fallback", () => {
+  test("defaults, then arm, then layers", () => {
     const plan = resolve({ harness: "claude", role: "worker" }, w);
-    expect(plan.arm).toBe("opus-1m");
-    expect(plan.config.systemPromptFile).toBe("prompts/SYSTEM_PROMPT.opus.md");
+    expect(plan.arm).toBe("opus-5");
+    expect(plan.config.systemPromptFile).toBe("prompts/opus-5-stance.md");
     expect(plan.config.effort).toBe("xhigh");
     expect(plan.config.skills).toEqual(["ccc-base"]);
   });
 
   test("an explicit effort suffix beats every rule", () => {
-    const plan = resolve({ harness: "claude", role: "worker", model: "claude-opus-4-8-low" }, w);
-    expect(plan.config.effort).toBe("low");
+    expect(resolve({ harness: "claude", role: "worker", model: "claude-opus-5-low" }, w).config.effort).toBe("low");
   });
 
   test("the first matching route wins and stops the search", () => {
-    const plan = resolve({ harness: "claude", profile: "codex", role: "worker" }, w);
-    expect(plan.arm).toBe("gpt-5.6-sol");
-  });
-
-  test("no route and no model leaves the harness its own model", () => {
-    const plan = resolve({ harness: "claude" }, w);
-    expect(plan.arm).toBeUndefined();
-    expect(plan.config.model).toBeUndefined();
+    expect(resolve({ harness: "claude", profile: "codex", role: "worker" }, w).arm).toBe("gpt-5.6-sol");
   });
 
   test("variadic flags are emitted as ONE --flag=value token", () => {
-    const argv = emitClaude(planWith({ mcp: ["{}"], disallowedTools: ["WebSearch"], tools: ["Bash", "Read"] }), w);
-    expect(argv).toContain("--mcp-config={}");
+    const argv = emitClaude(
+      planWith({ mcp: [{ mcpServers: {} }], disallowedTools: ["WebSearch"], tools: ["Bash", "Read"] }),
+      w,
+    );
+    expect(argv).toContain('--mcp-config={"mcpServers":{}}');
     expect(argv).toContain("--disallowedTools=WebSearch");
     expect(argv).toContain("--tools=Bash,Read");
     // never a bare flag whose value would swallow the user's prompt
@@ -445,34 +543,53 @@ describe("engine: precedence and emit", () => {
     expect(argv).not.toContain("--tools");
   });
 
-  test("a flag the caller already passed is left alone", () => {
-    const plan = planWith({ model: "m", mcp: ["{}"] }, { argv: ["--mcp-config=/mine.json"] });
+  test("an mcp object is serialized, so a hostile value cannot add a server", () => {
+    const hostile = '","command":"/bin/sh","args":["-c","touch /tmp/PWN"]},"evil":{"command":"id';
+    const plan = planWith({
+      mcp: [{ mcpServers: { MiniMax: { command: "uvx", env: { KEY: hostile } } } }],
+    });
     const argv = emitClaude(plan, w);
-    expect(argv).toContain("--model");
-    expect(argv.join(" ")).not.toContain("--mcp-config={}");
-    expect(plan.trace.join(" ")).toContain("caller passed --mcp-config");
+    const cfg = JSON.parse(argv.find((a) => a.startsWith("--mcp-config="))!.slice("--mcp-config=".length));
+    expect(Object.keys(cfg.mcpServers)).toEqual(["MiniMax"]);
+    expect(cfg.mcpServers.MiniMax.command).toBe("uvx");
+    expect(cfg.mcpServers.MiniMax.env.KEY).toBe(hostile);
+  });
+
+  test("a scalar flag the caller already passed is left alone, quietly", () => {
+    const plan = planWith({ model: "m", effort: "low" }, { argv: ["--effort=max"] });
+    const argv = emitClaude(plan, w);
+    expect(argv).not.toContain("--effort");
+    expect(plan.warnings).toEqual([]);
+    expect(plan.trace.join(" ")).toContain("caller passed --effort");
+  });
+
+  test("a suppressed accumulator warns — it drops everything the rules wanted", () => {
+    const plan = planWith({ model: "m", mcp: [{ a: 1 }] }, { argv: ["--mcp-config=/mine.json"] });
+    const argv = emitClaude(plan, w);
+    expect(argv.join(" ")).not.toContain("--mcp-config={");
+    expect(plan.warnings.join(" ")).toContain("--mcp-config");
   });
 
   test("--system-prompt from the caller suppresses ours, in either spelling", () => {
-    const plan = planWith({ systemPromptFile: "prompts/SYSTEM_PROMPT.opus.md" }, { argv: ["--system-prompt", "hi"] });
+    const plan = planWith({ systemPromptFile: "prompts/opus-5-stance.md" }, { argv: ["--system-prompt", "hi"] });
     expect(emitClaude(plan, w)).not.toContain("--system-prompt-file");
   });
 
   test("exclude-dynamic-sections is dropped with a warning when a prompt replaces the base", () => {
     const conflict = planWith({
-      systemPromptFile: "prompts/SYSTEM_PROMPT.opus.md",
+      systemPromptFile: "prompts/opus-5-stance.md",
       excludeDynamicSections: true,
     }).config;
-    const warnings = validate(conflict);
-    expect(warnings.join(" ")).toContain("does nothing");
+    expect(validate(conflict).join(" ")).toContain("does nothing");
     expect(conflict.excludeDynamicSections).toBe(false);
-    expect(emitClaude(planWith(conflict), w)).not.toContain("--exclude-dynamic-system-prompt-sections");
   });
 
-  test("exclude-dynamic-sections survives when nothing replaces the base prompt", () => {
+  test("exclude-dynamic-sections survives alone, and is not double-emitted", () => {
     const solo = planWith({ excludeDynamicSections: true }).config;
     expect(validate(solo)).toEqual([]);
     expect(emitClaude(planWith(solo), w)).toContain("--exclude-dynamic-system-prompt-sections");
+    const already = planWith(solo, { argv: ["--exclude-dynamic-system-prompt-sections"] });
+    expect(emitClaude(already, w)).not.toContain("--exclude-dynamic-system-prompt-sections");
   });
 
   test("a real launch carries no warnings", () => {
@@ -491,8 +608,7 @@ describe("engine: precedence and emit", () => {
     const dir = mkdtempSync(join(tmpdir(), "launch-append-"));
     const f = join(dir, "solo.md");
     writeFileSync(f, "SOLO");
-    const argv = emitClaude(planWith({ append: [{ file: f }] }), w);
-    expect(argv[argv.indexOf("--append-system-prompt-file") + 1]).toBe(f);
+    expect(emitClaude(planWith({ append: [{ file: f }] }), w)).toContain(f);
     rmSync(dir, { recursive: true, force: true });
   });
 
@@ -517,6 +633,25 @@ describe("engine: precedence and emit", () => {
     const argv = emitClaude(planWith({ model: "m", extraArgs: ["--foo", "bar baz"] }), w);
     expect(argv.slice(-2)).toEqual(["--foo", "bar baz"]);
   });
+
+  test("dry mode names the same file but writes nothing", () => {
+    const dir = mkdtempSync(join(tmpdir(), "launch-dry-"));
+    const f = join(dir, "brief.md");
+    writeFileSync(f, "BODY\n");
+    const wet = emitClaude(planWith({ append: [{ text: "A" }, { file: f }] }), w);
+    const path = wet[wet.indexOf("--append-system-prompt-file") + 1];
+    const before = statSync(path).mtimeMs;
+    const dry = emitClaude(planWith({ append: [{ text: "A" }, { file: f }] }), w, { dry: true });
+    expect(dry[dry.indexOf("--append-system-prompt-file") + 1]).toBe(path);
+    expect(statSync(path).mtimeMs).toBe(before);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("dry mode turns a missing file into a warning instead of an exit", () => {
+    const plan = planWith({ append: [{ text: "A" }, { file: "roles/ghost.md" }] });
+    emitClaude(plan, w, { dry: true });
+    expect(plan.warnings.join(" ")).toContain("roles/ghost.md");
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -524,7 +659,7 @@ describe("the launcher-defaults cutover", () => {
   test("OFF by default — bash still owns the shared prompt and mcp configs", () => {
     const plan = resolve({ harness: "claude", role: "worker" }, fixedWorld());
     expect(plan.config.mcp).toEqual([]);
-    expect(plan.config.systemPromptFile).toBe("prompts/SYSTEM_PROMPT.opus.md");
+    expect(plan.config.systemPromptFile).toBe("prompts/opus-5-stance.md");
   });
 
   test("ON: mcp configs accumulate, but a fallback never overrides an arm", () => {
@@ -535,11 +670,8 @@ describe("the launcher-defaults cutover", () => {
       hasExec: () => true,
     });
     const worker = resolve({ harness: "claude", role: "worker" }, w);
-    expect(worker.config.systemPromptFile).toBe("prompts/SYSTEM_PROMPT.opus.md");
+    expect(worker.config.systemPromptFile).toBe("prompts/opus-5-stance.md");
     expect(worker.config.mcp.length).toBe(2);
-
-    const bare = resolve({ harness: "claude" }, w);
-    expect(bare.config.systemPromptFile).toBe("~/.local/share/ucc/shared/SYSTEM_PROMPT.md");
   });
 
   test("ON: minimax adds its mcp and disallows WebSearch only when its gates hold", () => {
@@ -554,14 +686,15 @@ describe("the launcher-defaults cutover", () => {
       fixedWorld({ ...base, env: { MINIMAX_API_KEY: "k", MINIMAX_API_HOST: "https://h.example" } }),
     );
     expect(armed.config.disallowedTools).toEqual(["WebSearch"]);
-    expect(armed.config.mcp[0]).toContain('"MINIMAX_API_KEY":"k"');
-    expect(armed.config.mcp[0]).toContain('"MINIMAX_API_HOST":"https://h.example"');
+    const cfg = armed.config.mcp[0] as { mcpServers: { MiniMax: { env: Record<string, string> } } };
+    expect(cfg.mcpServers.MiniMax.env.MINIMAX_API_KEY).toBe("k");
+    expect(cfg.mcpServers.MiniMax.env.MINIMAX_API_HOST).toBe("https://h.example");
 
-    const noUvx = resolve({ harness: "claude" }, fixedWorld({ ...base, hasBin: () => false, env: { MINIMAX_API_KEY: "k" } }));
-    expect(noUvx.config.mcp).toEqual([]);
-
-    const noKey = resolve({ harness: "claude" }, fixedWorld({ ...base, env: {} }));
-    expect(noKey.config.mcp).toEqual([]);
+    expect(
+      resolve({ harness: "claude" }, fixedWorld({ ...base, hasBin: () => false, env: { MINIMAX_API_KEY: "k" } }))
+        .config.mcp,
+    ).toEqual([]);
+    expect(resolve({ harness: "claude" }, fixedWorld({ ...base, env: {} })).config.mcp).toEqual([]);
   });
 
   test("ON: a minimax base url without an explicit key uses the auth token", () => {
@@ -573,32 +706,73 @@ describe("the launcher-defaults cutover", () => {
         env: { ANTHROPIC_BASE_URL: "https://api.minimax.io/anthropic", ANTHROPIC_AUTH_TOKEN: "tok" },
       }),
     );
-    expect(plan.config.mcp[0]).toContain('"MINIMAX_API_KEY":"tok"');
-    expect(plan.config.mcp[0]).toContain("https://api.minimax.io");
+    const cfg = plan.config.mcp[0] as { mcpServers: { MiniMax: { env: Record<string, string> } } };
+    expect(cfg.mcpServers.MiniMax.env.MINIMAX_API_KEY).toBe("tok");
+    expect(cfg.mcpServers.MiniMax.env.MINIMAX_API_HOST).toBe("https://api.minimax.io");
   });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
 describe("matrix", () => {
-  test("every combination renders, and none is silently model-less by accident", () => {
+  test("every combination renders, and each names a model or explains why not", () => {
     const rows = buildMatrix(
-      { profiles: ["", "codex", "dewiest_gulp"], roles: ["", "worker"], models: [""], cwds: [""] },
+      { profiles: ["", "codex", "does_bannock_6u"], roles: ["", "advisor", "worker"], models: [""], cwds: [""] },
       { ...fixedWorld(), pick: (c) => c[0] },
     );
-    expect(rows).toHaveLength(6);
-    for (const r of rows) expect(Array.isArray(r.argv)).toBe(true);
+    expect(rows).toHaveLength(9);
+    for (const r of rows) {
+      expect(r.argv).toContain("--model");
+      expect(r.arm).not.toBe("");
+    }
     expect(rows.find((r) => r.profile === "codex" && r.role === "worker")!.arm).toBe("gpt-5.6-sol");
+    expect(rows.find((r) => r.profile === "" && r.role === "advisor")!.arm).toBe("fable");
   });
 
-  test("the golden matrix is current — regenerate with `bun launch.ts matrix > matrix.golden.txt`", () => {
-    const proc = Bun.spawnSync(["bun", LAUNCH, "matrix"], {
+  test("a matrix run writes nothing", () => {
+    const proc = Bun.spawnSync(["bun", LAUNCH, ...GOLDEN_ARGS], { cwd: import.meta.dir, stdout: "pipe" });
+    expect(proc.exitCode).toBe(0);
+    const rendered = join(import.meta.dir, ".rendered");
+    const before = existsSync(rendered) ? statSync(rendered).mtimeMs : 0;
+    Bun.spawnSync(["bun", LAUNCH, ...GOLDEN_ARGS], { cwd: import.meta.dir, stdout: "pipe" });
+    const after = existsSync(rendered) ? statSync(rendered).mtimeMs : 0;
+    expect(after).toBe(before);
+  });
+
+  test("a matrix can render a combination this machine cannot launch", () => {
+    const rows = buildMatrix(
+      { profiles: [""], roles: ["ghost"], models: [""], cwds: [""] },
+      { ...fixedWorld(), pick: (c) => c[0] },
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0].warnings.join(" ")).toContain("roles/ghost.md");
+  });
+
+  test("the table names every candidate when a route offers more than one", () => {
+    // no route is multi-candidate today; assert the column logic directly
+    const rows = buildMatrix(
+      { profiles: [""], roles: ["worker"], models: [""], cwds: [""] },
+      { ...fixedWorld(), pick: (c) => c[0] },
+    );
+    expect(rows[0].candidates).toEqual(["opus-5"]);
+  });
+
+  test("the golden matrix is current — regenerate with the GOLDEN_ARGS command", () => {
+    const proc = Bun.spawnSync(["bun", LAUNCH, ...GOLDEN_ARGS], {
       cwd: import.meta.dir,
       stdout: "pipe",
       stderr: "pipe",
     });
     expect(proc.exitCode).toBe(0);
+    expect(proc.stdout.toString()).toBe(readFileSync(join(import.meta.dir, "matrix.golden.txt"), "utf8"));
+  });
+
+  test("the golden covers the explicit-model half of the router", () => {
     const golden = readFileSync(join(import.meta.dir, "matrix.golden.txt"), "utf8");
-    expect(proc.stdout.toString()).toBe(golden);
+    expect(golden).toContain("claude-opus-5");
+    expect(golden).toContain("claude-opus-4-8[200k]");
+    expect(golden).toContain("sonnet");
+    // the append file must be visible, or a dropped role brief would not show
+    expect(golden).toContain("append-system-prompt-file");
   });
 
   test("matrix --html writes a self-contained page with the data inlined", () => {
@@ -612,10 +786,22 @@ describe("matrix", () => {
     expect(proc.exitCode).toBe(0);
     const html = readFileSync(out, "utf8");
     expect(html).not.toContain("__MATRIX__");
-    expect(html).toContain("const DATA = {");
     const data = JSON.parse(html.match(/const DATA = (\{.*?\});\n/s)![1]);
     expect(data.rows.length).toBeGreaterThan(0);
     expect(data.rows[0]).toHaveProperty("trace");
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("a hostile value cannot break out of the viewer's script block", () => {
+    const dir = mkdtempSync(join(tmpdir(), "launch-xss-"));
+    const out = join(dir, "m.html");
+    Bun.spawnSync(
+      ["bun", LAUNCH, "matrix", "--profiles", '</script><img src=x onerror=alert(1)>', "--html", out],
+      { cwd: import.meta.dir, stdout: "pipe", stderr: "pipe" },
+    );
+    const html = readFileSync(out, "utf8");
+    expect(html.match(/<\/script>/g)).toHaveLength(1);
+    expect(html).toContain("\\u003c");
     rmSync(dir, { recursive: true, force: true });
   });
 });

@@ -27,12 +27,19 @@
 
 export type Append = { file: string } | { text: string };
 
+/** An mcp config: a path to a JSON file, or the config object itself.
+ *  Objects are serialized by the engine, so an interpolated value can never
+ *  break out of its string — never hand-write mcp JSON as a string. */
+export type Mcp = string | Record<string, unknown>;
+
 /** A model and the system prompt that belongs with it. */
 export type Arm = {
   model: string;
   /** replaces the harness base system prompt (repo-relative or ~) */
   prompt?: string;
   effort?: string;
+  /** this endpoint speaks only this id — ignore an explicitly requested model */
+  pin?: boolean;
 };
 
 /**
@@ -60,7 +67,7 @@ export type When = {
 /** A router entry. First match wins; it names the arm. */
 export type Route = {
   when: When;
-  /** arm name; a list means "pick one" (matrix shows every candidate) */
+  /** arm name; a list means "pick one" (matrix renders every candidate) */
   use: string | string[];
   why?: string;
 };
@@ -87,8 +94,7 @@ export type Layer = {
   append?: Append[];
   /** loaded on turn one via a startup directive */
   skills?: string[];
-  /** file paths or inline JSON → --mcp-config= */
-  mcp?: string[];
+  mcp?: Mcp[];
   /** the built-in tool set → --tools= ("" disables all, "default" for all) */
   tools?: string[];
   allowedTools?: string[];
@@ -104,8 +110,6 @@ export type Layer = {
 };
 
 // ─── defaults ───────────────────────────────────────────────────────────────
-// Every launch starts here. No model: a bare `ucc-<profile>` keeps whatever
-// the harness and the profile settings already choose.
 
 export const defaults: Layer = {
   effort: "xhigh",
@@ -115,36 +119,46 @@ export const defaults: Layer = {
 
 // ─── arms ───────────────────────────────────────────────────────────────────
 // A model never travels alone — it carries the system prompt written for it.
-// Add an arm here, then point a route at it.
+//
+// EVERY claude id carries the [1m] postfix. Without it the session reports a
+// 200k context window, which is wrong. The router strips the postfix before
+// matching, so a route says `claude-opus-5` and both spellings reach it.
 
 export const arms: Record<string, Arm> = {
+  // The fleet default.
+  "opus-5": {
+    model: "claude-opus-5[1m]",
+    prompt: "prompts/opus-5-stance.md",
+  },
+  // Advisors stay here: the armed, battle-tested arm.
   fable: {
-    model: "claude-fable-5",
-    prompt: "prompts/SYSTEM_PROMPT.fable.md",
+    model: "claude-fable-5[1m]",
+    prompt: "prompts/fable-5-calibration.md",
   },
-  opus: {
-    model: "claude-opus-4-8",
-    prompt: "prompts/SYSTEM_PROMPT.opus.md",
-  },
-  "opus-1m": {
+  "opus-4-8": {
     model: "claude-opus-4-8[1m]",
-    prompt: "prompts/SYSTEM_PROMPT.opus.md",
+    prompt: "prompts/opus-4-operator.md",
   },
-  // Endpoints that speak their own model ids. They run the fable prompt layer.
+
+  // Endpoints that speak their own model ids, and have no claude-opus-5.
+  // They pin: an explicitly requested claude id would be rejected upstream.
   "gpt-5.6-sol": {
     model: "gpt-5.6-sol[1m]",
-    prompt: "prompts/SYSTEM_PROMPT.fable.md",
+    prompt: "prompts/fable-5-calibration.md",
     effort: "xhigh",
+    pin: true,
   },
   k3: {
     model: "k3[1m]",
-    prompt: "prompts/SYSTEM_PROMPT.fable.md",
+    prompt: "prompts/fable-5-calibration.md",
     effort: "xhigh",
+    pin: true,
   },
   "grok-4.5": {
     model: "grok-4.5[1m]",
-    prompt: "prompts/SYSTEM_PROMPT.fable.md",
+    prompt: "prompts/fable-5-calibration.md",
     effort: "xhigh",
+    pin: true,
   },
 };
 
@@ -153,58 +167,49 @@ export const arms: Record<string, Arm> = {
 // profiles inline, so one account moves between fleets by moving one line.
 
 export const pools: Record<string, string[]> = {
-  FABLE_FLEET: ["dewiest_gulp", "crusted_standby_0n", "grid-mullein1b"],
-  OPUS_1M_FLEET: [
-    "vows_yogic_9k",
-    "blusher-83savvy",
-    "monk0foreleg",
-    "dewiest_gulp",
-    "crusted_standby_0n",
-    "colder_therapy0i",
-  ],
+  /** accounts whose fable quota is spent — they never route to the fable arm */
+  FABLE_SPENT: ["does_bannock_6u"],
 };
 
 // ─── routes ─────────────────────────────────────────────────────────────────
 // THE ROUTER. Read top to bottom; the FIRST match wins and names the arm.
-// A launch that matches nothing here and named no model gets no --model at all.
+//
+// Reading order, and why it is this order:
+//   1. endpoint profiles — their API has no claude model at all, so they win
+//      over everything, including an explicitly requested one
+//   2. an explicitly requested model — exact id first, then the variant
+//      catch-alls, so a new claude-opus-5 spelling still gets its prompt
+//   3. advisor — the one role that stays on fable
+//   4. everything else — claude-opus-5, the default
+//
+// An explicitly requested model is emitted as asked (normalized to [1m]); the
+// arm it matches then supplies only the prompt and the effort. A launch that
+// requested nothing takes the arm's model too.
 
 export const routes: Route[] = [
-  // 1. Endpoint profiles. Their API rejects claude ids, so these beat an
-  //    explicit --model too.
+  // 1. endpoint profiles
   { when: { profile: "codex" }, use: "gpt-5.6-sol", why: "codex endpoint" },
   { when: { profile: "kimi-k3-moonshot" }, use: "k3", why: "moonshot endpoint" },
   { when: { profile: "grok" }, use: "grok-4.5", why: "grok endpoint" },
 
-  // 2. The caller named a model. An effort suffix (-low … -max) is stripped
-  //    off the id first and applied as --effort, so claude-opus-4-8-xhigh
-  //    lands here as claude-opus-4-8.
+  // 2. the caller named a model. An effort suffix (-low … -max) and the [1m]
+  //    postfix are both stripped before these are matched.
+  { when: { model: "claude-opus-5" }, use: "opus-5" },
   { when: { model: "claude-fable-5" }, use: "fable" },
-  { when: { model: "claude-opus-4-8" }, use: "opus" },
-  { when: { model: "claude-opus-4-8[1m]" }, use: "opus-1m" },
-  //    Any other named model passes through as a real id, no prompt arm.
+  { when: { model: "claude-opus-4-8" }, use: "opus-4-8" },
+  //    variant catch-alls — an unlisted claude spelling still gets a prompt
+  //    rather than silently launching on the harness default
+  { when: { model: "claude-opus-5*" }, use: "opus-5", why: "opus-5 variant" },
+  { when: { model: "claude-fable-*" }, use: "fable", why: "fable variant" },
+  { when: { model: "claude-opus-*" }, use: "opus-4-8", why: "older opus variant" },
+  //    anything else named passes through as a real id, no prompt arm.
 
-  // 3. Role pools — the fleet's standing model policy. Comment these two
-  //    lines out and the per-profile rules below take over.
-  { when: { noModel: true, role: ["advisor", "leader"] }, use: ["fable"] },
-  { when: { noModel: true, role: "worker" }, use: ["opus-1m"] },
+  // 3. advisors keep fable — except where its quota is spent.
+  { when: { noModel: true, role: "advisor", pool: "FABLE_SPENT" }, use: "opus-5", why: "fable quota spent" },
+  { when: { noModel: true, role: "advisor" }, use: "fable", why: "advisors stay on fable" },
 
-  // 4. Per-profile rules. Reached only when a launch carries no model and the
-  //    role pools above did not claim it.
-  {
-    when: { noModel: true, profile: "does_bannock_6u" },
-    use: "opus-1m",
-    why: "fable quota spent on this account",
-  },
-  {
-    when: { noModel: true, pool: "FABLE_FLEET", role: ["advisor", "leader"] },
-    use: "fable",
-    why: "FABLE_FLEET thinking roles",
-  },
-  {
-    when: { noModel: true, role: "*" },
-    use: "opus-1m",
-    why: "every other fleet launch",
-  },
+  // 4. the default: everything else runs claude-opus-5.
+  { when: { noModel: true }, use: "opus-5", why: "fleet default" },
 ];
 
 // ─── layers ─────────────────────────────────────────────────────────────────
@@ -232,6 +237,9 @@ export const layers: Layer[] = [
 //      constants.mjs / install-wrappers.mjs / profile-cli.mjs, regenerate
 //   3. stop the wrapper re-rendering a spawn that ccc-tmux already rendered
 //   4. flip OWN_LAUNCHER_DEFAULTS to true
+//
+// Note for step 4: with these ON the matrix depends on the machine's env and
+// disk, so `matrix.golden.txt` must be regenerated with a pinned world.
 //
 // Preview the flipped state any time, without flipping it:
 //   bun launch.ts explain --own-defaults --role worker
@@ -264,7 +272,16 @@ export const launcherDefaults: Layer[] = [
       "env:SUPERZ_BOT_TOKEN | file:${CCC_TELEGRAM_SECRETS_FILE} | file:${CCC_TELEGRAM_DATA_DIR:-~/.local/share/ucc/data/ccc-telegram}/telegram.yaml",
     ],
     mcp: [
-      '{"mcpServers":{"ccc-statusd":{"type":"stdio","command":"${HOME}/.local/bin/ccc-statusd","args":["mcp"],"timeout":86400000}}}',
+      {
+        mcpServers: {
+          "ccc-statusd": {
+            type: "stdio",
+            command: "${HOME}/.local/bin/ccc-statusd",
+            args: ["mcp"],
+            timeout: 86400000,
+          },
+        },
+      },
     ],
   },
   {
@@ -275,7 +292,18 @@ export const launcherDefaults: Layer[] = [
       "env:MINIMAX_API_KEY | env:ANTHROPIC_AUTH_TOKEN | env:ANTHROPIC_API_KEY",
     ],
     mcp: [
-      '{"mcpServers":{"MiniMax":{"command":"uvx","args":["minimax-coding-plan-mcp","-y"],"env":{"MINIMAX_API_KEY":"${MINIMAX_API_KEY|ANTHROPIC_AUTH_TOKEN|ANTHROPIC_API_KEY}","MINIMAX_API_HOST":"${MINIMAX_API_HOST:-https://api.minimax.io}"}}}}',
+      {
+        mcpServers: {
+          MiniMax: {
+            command: "uvx",
+            args: ["minimax-coding-plan-mcp", "-y"],
+            env: {
+              MINIMAX_API_KEY: "${MINIMAX_API_KEY|ANTHROPIC_AUTH_TOKEN|ANTHROPIC_API_KEY}",
+              MINIMAX_API_HOST: "${MINIMAX_API_HOST:-https://api.minimax.io}",
+            },
+          },
+        },
+      },
     ],
     disallowedTools: ["WebSearch"],
   },
