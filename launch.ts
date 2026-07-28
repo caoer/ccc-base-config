@@ -37,9 +37,7 @@ import {
   pools,
   routes,
   layers,
-  launcherDefaults,
   ENDPOINT_SERVES_ITS_OWN_MODEL,
-  OWN_LAUNCHER_DEFAULTS,
   type Append,
   type Layer,
   type Mcp,
@@ -61,6 +59,9 @@ export type Ctx = {
   role?: string;
   /** flags the caller already put on the command line — never overridden */
   argv?: string[];
+  /** the launch resumes an existing session (-r/--resume/-c/--continue);
+   *  derived from argv — the session keeps its own model and effort */
+  resume?: boolean;
 };
 
 // ─── World: everything outside this process ─────────────────────────────────
@@ -71,8 +72,8 @@ export type World = {
   hasBin: (name: string) => boolean;
   /** which arm to take when a route offers several */
   pick: (candidates: string[]) => string;
-  /** are the bash wrappers out of the way yet? (rules.ts § launcherDefaults) */
-  ownLauncherDefaults: boolean;
+  /** per-user pool members from pools.local.json — merged with rules.ts pools */
+  localPools: Record<string, string[]>;
 };
 
 // ─── Config: the decision, before it becomes flags ──────────────────────────
@@ -115,7 +116,7 @@ const fail: (msg: string) => never = (msg) => {
 // THE WORLD — the only code that touches env, disk, or PATH.
 // ═══════════════════════════════════════════════════════════════════════════
 
-export function realWorld(env = process.env): World {
+export function realWorld(env = process.env, localPools: Record<string, string[]> = {}): World {
   return {
     env,
     hasFile: (p) => p.trim() !== "" && existsSync(p),
@@ -135,7 +136,7 @@ export function realWorld(env = process.env): World {
       return false;
     },
     pick: (c) => c[Math.floor(Math.random() * c.length)],
-    ownLauncherDefaults: OWN_LAUNCHER_DEFAULTS,
+    localPools,
   };
 }
 
@@ -148,9 +149,40 @@ export function fixedWorld(over: Partial<World> = {}): World {
     hasExec: () => false,
     hasBin: () => false,
     pick: (c) => c[0],
-    ownLauncherDefaults: OWN_LAUNCHER_DEFAULTS,
+    localPools: {},
     ...over,
   };
+}
+
+/**
+ * Read pools.local.json — the per-user pool membership file the installer
+ * never writes. A malformed file must never break launching: every problem
+ * degrades to a stderr warning and an empty table.
+ *
+ *   { "FABLE_SPENT": ["some_profile_3x"] }
+ */
+export function readLocalPools(path: string): Record<string, string[]> {
+  if (!existsSync(path)) return {};
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(path, "utf8"));
+  } catch (e) {
+    console.error(`launch: ${path} is not valid JSON — ignoring local pools (${e})`);
+    return {};
+  }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    console.error(`launch: ${path} must be an object of pool-name → [profiles] — ignoring local pools`);
+    return {};
+  }
+  const out: Record<string, string[]> = {};
+  for (const [name, members] of Object.entries(parsed as Record<string, unknown>)) {
+    if (!Array.isArray(members) || members.some((m) => typeof m !== "string")) {
+      console.error(`launch: ${path}: pool '${name}' is not an array of strings — skipped`);
+      continue;
+    }
+    out[name] = members as string[];
+  }
+  return out;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -272,8 +304,10 @@ export function matches(when: When | undefined, ctx: Ctx, world: World): boolean
   if (when.cwd && !matchCwd(list(when.cwd), ctx.cwd, world.env)) return false;
   if (when.pool) {
     const inPool = list(when.pool).some((name) => {
-      const members = pools[name];
-      if (!members) fail(`rules.ts: route names unknown pool '${name}'`);
+      const declared = pools[name];
+      const local = world.localPools[name];
+      if (!declared && !local) fail(`rules.ts: route names unknown pool '${name}'`);
+      const members = [...(declared ?? []), ...(local ?? [])];
       return !!ctx.profile && members.includes(ctx.profile);
     });
     if (!inPool) return false;
@@ -310,6 +344,39 @@ export const bareId = (model: string): string =>
   model.endsWith(ONE_M) ? model.slice(0, -ONE_M.length) : model;
 
 /**
+ * Derive launch context from the caller's raw command line.
+ *
+ * The wrapper forwards its whole "$@" and this is the ONE place that reads
+ * it: the last --model becomes the requested model (and is REMOVED from the
+ * clash-detection argv, so the normalized spelling we emit replaces the raw
+ * one via the model_matched dance), and a resume/continue flag marks the
+ * launch as resuming. Everything else stays in argv untouched — emitClaude's
+ * family scan is what keeps the rules out of the caller's way.
+ */
+export function siftArgv(raw: string[]): { model?: string; resume: boolean; argv: string[] } {
+  let model: string | undefined;
+  let resume = false;
+  const argv: string[] = [];
+  for (let i = 0; i < raw.length; i++) {
+    const a = raw[i];
+    if (a === "--model") {
+      if (i + 1 < raw.length) model = raw[++i];
+      continue;
+    }
+    if (a.startsWith("--model=")) {
+      model = a.slice("--model=".length);
+      continue;
+    }
+    if (a === "-r" || a === "--resume" || a === "-c" || a === "--continue" ||
+        a.startsWith("--resume=") || a.startsWith("--continue=")) {
+      resume = true;
+    }
+    argv.push(a);
+  }
+  return { model, resume, argv };
+}
+
+/**
  * claude-opus-4-8-xhigh → { model: "claude-opus-4-8", effort: "xhigh" }
  *
  * Only claude ids carry this convention. An endpoint id is opaque — splitting
@@ -327,24 +394,15 @@ export function splitEffort(model?: string): { model?: string; effort?: string }
 function applyLayer(c: Config, l: Layer, ctx: Ctx, world: World, trace: string[]): void {
   const I = (s: string) => interpolate(s, ctx, world);
   const did: string[] = [];
-  // A fallback layer fills only what nothing has set yet — it is a default,
-  // not an override, so an arm's prompt and a role's brief both survive it.
-  const taken = (already: boolean, field: string): boolean => {
-    if (l.fallback && already) {
-      did.push(`${field} kept`);
-      return true;
-    }
-    return false;
-  };
-  if (l.systemPrompt !== undefined && !taken(c.systemPromptFile !== undefined, "system-prompt")) {
+  if (l.systemPrompt !== undefined) {
     c.systemPromptFile = I(l.systemPrompt);
     did.push(`system-prompt ${c.systemPromptFile}`);
   }
-  if (l.append?.length && !taken(c.append.length > 0, "append")) {
+  if (l.append?.length) {
     for (const a of l.append) c.append.push("file" in a ? { file: I(a.file) } : { text: I(a.text) });
     did.push(`append ×${l.append.length}`);
   }
-  if (l.mcp?.length && !taken(c.mcp.length > 0, "mcp")) {
+  if (l.mcp?.length) {
     c.mcp.push(
       ...l.mcp.map((m) =>
         typeof m === "string" ? I(m) : (interpolateDeep(m, ctx, world) as Record<string, unknown>),
@@ -352,34 +410,31 @@ function applyLayer(c: Config, l: Layer, ctx: Ctx, world: World, trace: string[]
     );
     did.push(`mcp ×${l.mcp.length}`);
   }
-  if (l.tools?.length && !taken(c.tools.length > 0, "tools")) {
+  if (l.tools?.length) {
     c.tools.push(...l.tools.map(I));
     did.push(`tools ${l.tools.join(",")}`);
   }
-  if (l.allowedTools?.length && !taken(c.allowedTools.length > 0, "allowedTools")) {
+  if (l.allowedTools?.length) {
     c.allowedTools.push(...l.allowedTools.map(I));
     did.push(`allowedTools ${l.allowedTools.join(",")}`);
   }
-  if (l.disallowedTools?.length && !taken(c.disallowedTools.length > 0, "disallowedTools")) {
+  if (l.disallowedTools?.length) {
     c.disallowedTools.push(...l.disallowedTools.map(I));
     did.push(`disallowedTools ${l.disallowedTools.join(",")}`);
   }
-  if (
-    l.excludeDynamicSections !== undefined &&
-    !taken(c.excludeDynamicSections !== undefined, "exclude-dynamic-sections")
-  ) {
+  if (l.excludeDynamicSections !== undefined) {
     c.excludeDynamicSections = l.excludeDynamicSections;
     did.push(`exclude-dynamic-sections ${l.excludeDynamicSections}`);
   }
-  if (l.effort !== undefined && !taken(c.effort !== undefined, "effort")) {
+  if (l.effort !== undefined) {
     c.effort = l.effort;
     did.push(`effort ${l.effort}`);
   }
-  if (l.verbose !== undefined && !taken(c.verbose !== undefined, "verbose")) {
+  if (l.verbose !== undefined) {
     c.verbose = l.verbose;
     did.push(`verbose ${l.verbose}`);
   }
-  if (l.args?.length && !taken(c.extraArgs.length > 0, "args")) {
+  if (l.args?.length) {
     c.extraArgs.push(...l.args.map(I));
     did.push(`args ${l.args.join(" ")}`);
   }
@@ -459,8 +514,7 @@ export function resolve(ctx: Ctx, world: World): Plan {
   }
 
   // 3. layers — every match applies, in order
-  const all = [...layers, ...(world.ownLauncherDefaults ? launcherDefaults : [])];
-  for (const layer of all) {
+  for (const layer of layers) {
     if (!matches(layer.when, c, world)) continue;
     const unmet = (layer.requires ?? []).filter((r) => !probe(r, c, world));
     if (unmet.length > 0) {
@@ -468,6 +522,16 @@ export function resolve(ctx: Ctx, world: World): Plan {
       continue;
     }
     applyLayer(config, layer, c, world, trace);
+  }
+
+  // The resume rule: a resumed session keeps its own model and effort —
+  // emitting an arm's would silently switch a session mid-conversation. An
+  // EXPLICITLY requested model still wins: asking is consent to switch, and
+  // emitting it normalized beats letting a raw selection id reach the CLI.
+  if (c.resume && !asked && (config.model !== undefined || config.effort !== undefined)) {
+    trace.push("resume/continue: the session keeps its own model and effort — dropping ours");
+    config.model = undefined;
+    config.effort = undefined;
   }
 
   // An explicit effort suffix on the requested model beats every rule.
@@ -670,10 +734,12 @@ export type Row = {
   warnings: string[];
 };
 
-/** Every profile rules.ts actually mentions — the axis that changes anything. */
-export function rulesProfiles(): string[] {
+/** Every profile the rules actually mention — the axis that changes anything.
+ *  Local pool members count: they are rules too, just per-user ones. */
+export function rulesProfiles(localPools: Record<string, string[]> = {}): string[] {
   const named = new Set<string>();
   for (const members of Object.values(pools)) for (const m of members) named.add(m);
+  for (const members of Object.values(localPools)) for (const m of members) named.add(m);
   for (const r of routes) for (const p of list(r.when.profile)) named.add(p);
   for (const l of layers) for (const p of list(l.when?.profile)) named.add(p);
   return [...named].sort();
@@ -801,7 +867,11 @@ type Parsed = {
   output: "json" | "shell";
   /** false → the caller took the default, and matrix may prefer its table */
   outputGiven: boolean;
-  ownDefaults: boolean;
+  /** pools.local.json override: a path, or "none" to disable */
+  pools?: string;
+  /** matrix only: render against a fixed world (no env, no disk probes) so
+   *  the output is identical on every machine — what the golden file pins */
+  pinned: boolean;
   axes: Partial<Axes>;
   html?: string;
   allProfiles: boolean;
@@ -819,7 +889,7 @@ function parseArgs(args: string[]): Parsed {
       const eq = a.indexOf("=");
       const name = eq >= 0 ? a.slice(2, eq) : a.slice(2);
       if (eq >= 0) flags[name] = a.slice(eq + 1);
-      else if (name === "own-defaults" || name === "all-profiles") bare.add(name);
+      else if (name === "all-profiles" || name === "pinned") bare.add(name);
       else flags[name] = args[++i] ?? "";
     } else if (a.trim().startsWith("{")) {
       try {
@@ -851,6 +921,14 @@ function parseArgs(args: string[]): Parsed {
     role: pick("role"),
     argv: Array.isArray(json.argv) ? (json.argv as unknown[]).map(String) : undefined,
   };
+  // The wrapper forwards its raw "$@": derive the requested model and the
+  // resume flag from it. An explicit `model` param (ccc-tmux) still wins.
+  if (ctx.argv) {
+    const sifted = siftArgv(ctx.argv);
+    ctx.model ??= sifted.model;
+    ctx.resume = sifted.resume;
+    ctx.argv = sifted.argv;
+  }
 
   const csv = (k: string): string[] | undefined => {
     const v = pick(k);
@@ -868,7 +946,8 @@ function parseArgs(args: string[]): Parsed {
     ctx,
     output,
     outputGiven: pick("output") !== undefined,
-    ownDefaults: bare.has("own-defaults"),
+    pools: pick("pools"),
+    pinned: bare.has("pinned"),
     axes,
     html: pick("html"),
     allProfiles: bare.has("all-profiles"),
@@ -915,8 +994,16 @@ const isMain =
 
 if (isMain) {
   const p = parseArgs(process.argv.slice(2));
-  const world = realWorld();
-  if (p.ownDefaults) world.ownLauncherDefaults = true;
+  // pools.local.json sits next to the rules — per-user, installer-untouched.
+  // `--pools none` renders the shipped rules alone (what the golden matrix
+  // pins); `--pools <path>` points at a fixture.
+  const poolsPath =
+    p.pools === "none"
+      ? undefined
+      : p.pools !== undefined
+        ? expandPath(p.pools, process.env)
+        : resolvePath(ROOT, "pools.local.json");
+  const world = realWorld(process.env, poolsPath ? readLocalPools(poolsPath) : {});
 
   if (p.verb === "render") {
     const { argv, plan } = render(p.ctx, world);
@@ -941,7 +1028,10 @@ if (isMain) {
       `launch  harness=${ctx.harness} profile=${ctx.profile ?? "—"} role=${ctx.role ?? "—"} ` +
         `model=${ctx.model ?? "—"} cwd=${ctx.cwd ?? "—"}`,
     );
-    console.log(`world   launcher-defaults=${world.ownLauncherDefaults ? "ON" : "OFF (bash still owns them)"}`);
+    const localPoolNote = Object.entries(world.localPools)
+      .map(([k, v]) => `${k}+[${v.join(", ")}]`)
+      .join(" ");
+    console.log(`world   local-pools=${localPoolNote || "none"}`);
     console.log("");
     for (const t of plan.trace) console.log(`  ${t}`);
     console.log("");
@@ -951,13 +1041,18 @@ if (isMain) {
     for (const a of argv) console.log(`  ${a}`);
   } else {
     const axes: Axes = {
-      profiles: p.axes.profiles ?? ["", ...(p.allProfiles ? installedProfiles(world.env) : rulesProfiles())],
+      profiles: p.axes.profiles ?? ["", ...(p.allProfiles ? installedProfiles(world.env) : rulesProfiles(world.localPools))],
       roles: p.axes.roles ?? ["", "advisor", "leader", "worker"],
       models: p.axes.models ?? [""],
       cwds: p.axes.cwds ?? [""],
     };
-    // matrix must be reproducible: always take the first candidate
-    const rows = buildMatrix(axes, { ...world, pick: (c) => c[0] }, (p) => readProfileEnv(p, world.env));
+    // matrix must be reproducible: always take the first candidate. --pinned
+    // goes further and swaps in a fixed world, so the table is identical on
+    // every machine — mcp layers and profile .env files no longer leak in.
+    const mWorld = p.pinned
+      ? fixedWorld({ pick: (c) => c[0], localPools: world.localPools })
+      : { ...world, pick: (c) => c[0] };
+    const rows = buildMatrix(axes, mWorld, p.pinned ? undefined : (prof) => readProfileEnv(prof, world.env));
     if (p.html) {
       console.log(writeViewer(rows, axes, p.html, new Date().toISOString()));
     } else if (p.outputGiven && p.output === "json") {
@@ -966,7 +1061,7 @@ if (isMain) {
       // a named profile renders against its own .env; the no-profile rows
       // can only reflect the shell you are standing in, so say when that
       // shell is itself an endpoint session
-      const shellEndpoint = world.env.ANTHROPIC_BASE_URL;
+      const shellEndpoint = mWorld.env.ANTHROPIC_BASE_URL;
       console.log(
         matrixTable(
           rows,

@@ -1,4 +1,4 @@
-80 combinations — 5 profiles × 4 roles × 4 models × 1 cwds
+64 combinations — 4 profiles × 4 roles × 4 models × 1 cwds
 
 profile           role     model in               cwd  arm                  model out              effort  prompt                                  extras
 ────────────────  ───────  ─────────────────────  ───  ───────────────────  ─────────────────────  ──────  ──────────────────────────────────────  ──────
@@ -34,22 +34,6 @@ codex             worker   —                      —    gpt-5.6-sol:worker   
 codex             worker   claude-opus-5          —    gpt-5.6-sol:worker   gpt-5.6-sol[1m]        xhigh   prompts/fable-5-calibration.worker.md   —
 codex             worker   claude-opus-4-8[200k]  —    gpt-5.6-sol:worker   gpt-5.6-sol[1m]        xhigh   prompts/fable-5-calibration.worker.md   —
 codex             worker   sonnet                 —    gpt-5.6-sol:worker   gpt-5.6-sol[1m]        xhigh   prompts/fable-5-calibration.worker.md   —
-does_bannock_6u   —        —                      —    opus-5               claude-opus-5[1m]      xhigh   prompts/opus-5-stance.md                —
-does_bannock_6u   —        claude-opus-5          —    opus-5               claude-opus-5[1m]      xhigh   prompts/opus-5-stance.md                —
-does_bannock_6u   —        claude-opus-4-8[200k]  —    opus-4-8             claude-opus-4-8[200k]  xhigh   prompts/opus-4-operator.md              —
-does_bannock_6u   —        sonnet                 —    —                    sonnet                 xhigh   —                                       —
-does_bannock_6u   advisor  —                      —    opus-5:advisor       claude-opus-5[1m]      xhigh   prompts/opus-5-stance.advisor.md        —
-does_bannock_6u   advisor  claude-opus-5          —    opus-5:advisor       claude-opus-5[1m]      xhigh   prompts/opus-5-stance.advisor.md        —
-does_bannock_6u   advisor  claude-opus-4-8[200k]  —    opus-4-8             claude-opus-4-8[200k]  xhigh   prompts/opus-4-operator.md              —
-does_bannock_6u   advisor  sonnet                 —    —                    sonnet                 xhigh   —                                       —
-does_bannock_6u   leader   —                      —    opus-5:leader        claude-opus-5[1m]      xhigh   prompts/opus-5-stance.leader.md         —
-does_bannock_6u   leader   claude-opus-5          —    opus-5:leader        claude-opus-5[1m]      xhigh   prompts/opus-5-stance.leader.md         —
-does_bannock_6u   leader   claude-opus-4-8[200k]  —    opus-4-8             claude-opus-4-8[200k]  xhigh   prompts/opus-4-operator.md              —
-does_bannock_6u   leader   sonnet                 —    —                    sonnet                 xhigh   —                                       —
-does_bannock_6u   worker   —                      —    opus-5:worker        claude-opus-5[1m]      xhigh   prompts/opus-5-stance.worker.md         —
-does_bannock_6u   worker   claude-opus-5          —    opus-5:worker        claude-opus-5[1m]      xhigh   prompts/opus-5-stance.worker.md         —
-does_bannock_6u   worker   claude-opus-4-8[200k]  —    opus-4-8             claude-opus-4-8[200k]  xhigh   prompts/opus-4-operator.md              —
-does_bannock_6u   worker   sonnet                 —    —                    sonnet                 xhigh   —                                       —
 grok              —        —                      —    grok-4.5             grok-4.5[1m]           xhigh   prompts/fable-5-calibration.md          —
 grok              —        claude-opus-5          —    grok-4.5             grok-4.5[1m]           xhigh   prompts/fable-5-calibration.md          —
 grok              —        claude-opus-4-8[200k]  —    grok-4.5             grok-4.5[1m]           xhigh   prompts/fable-5-calibration.md          —

@@ -5,9 +5,10 @@ system prompt, which flags. Two files do the work.
 
 | File | What it is |
 |---|---|
-| `rules.ts` | **The config.** Pure data — tables you edit. Nothing in it runs. |
+| `rules.ts` | **The config.** Pure data — tables you edit. Nothing in it runs. Ships in the UCC package, so nothing user-specific goes here. |
 | `launch.ts` | The engine. Reads the tables, answers them against the machine, prints flags. You rarely open it. |
 | `prompts/*.md` | The system prompts. Written elsewhere; only pointed at from `rules.ts`. |
+| `pools.local.json` | **Per-user pool members** (e.g. which accounts are fable-spent). Local to the machine, gitignored, never touched by the installer. |
 
 Everything else is generated or supporting: `matrix.golden.txt` (a rendered
 snapshot of the whole config), `matrix-viewer.html` (the debug page template),
@@ -32,8 +33,12 @@ Then two rules run over the result:
   `ANTHROPIC_MODEL` applies instead. A `pin`ned arm is the exception — pinning
   states that we know that endpoint's id.
 
-`layers` is empty today. A role gets a whole prompt, not a base plus an
-overlay, so nothing needs to apply on top of an arm.
+`layers` carries only functional config (the shared `.mcp.json`, the
+ccc-statusd MCP, the MiniMax MCP) — each gated by `requires` probes against
+the real machine. A role gets a whole prompt, not a base plus an overlay, so
+no layer writes prompt text. The old shared-`SYSTEM_PROMPT.md` convention is
+gone: the engine owns ALL launch config, and the bash wrappers inject
+nothing of their own.
 
 ## What the fleet does now
 
@@ -116,11 +121,16 @@ and everything below it) or a bare word (substring of the path).
 ```
 
 **Give one account different treatment.** Add it to a pool, then match the
-pool. A pool keeps the account list in one place instead of inline in routes.
+pool. `rules.ts` only DECLARES pools; members are per-user and live in
+`pools.local.json` next to it:
 
-```ts
-export const pools = { FABLE_SPENT: ["does_bannock_6u"] };
+```json
+{ "FABLE_SPENT": ["some_profile_3x"] }
 ```
+
+The fable case is why this file exists: an account can still have credit
+while fable is metered separately and unavailable. Listing the profile there
+reroutes only its advisor launches to opus-5.
 
 **Add an endpoint that speaks its own ids.** Give the arm `pin: true`, which
 means the requested model is ignored and this id is always sent.
@@ -130,9 +140,21 @@ means the requested model is ignored and this id is always sent.
 Two callers, one contract. Both pass a JSON object and read back
 `{ argv, model_matched, trace, warnings }`.
 
-- **`ucc-<profile>`** (the bash wrapper) sends `harness`, `project`, `profile`,
-  `model`. It never sends `role`. It runs the shared node.
-- **`ccc-tmux spawn-agent`** sends the same plus `role`. It runs bun.
+- **`ucc-<profile>`** (the bash wrapper) sends `harness`, `project`, `profile`
+  and its whole raw command line as `argv`. The engine derives the requested
+  model and the resume flag from `argv`, and never re-emits a flag family the
+  caller already used — that is what makes `--system-prompt "."` on the
+  command line suppress the arm prompt instead of clashing with it. It never
+  sends `role`. It runs the shared node.
+- **`ccc-tmux spawn-agent`** sends `harness`, `project`, `profile`, `model`,
+  `role` and no `argv`. It runs bun. A spawn's launch is rendered twice — once
+  by ccc-tmux, once by the wrapper — and the second render is idempotent: it
+  sees every rendered flag in `argv` and adds nothing but the normalized
+  model.
+
+On resume (`-r`/`--resume`/`-c`/`--continue` in `argv`) the engine emits no
+`--model` and no `--effort` — the session keeps its own — but still emits the
+prompt and mcp config. An explicitly requested model on resume is honored.
 
 `model_matched` tells the caller whether our argv carries a real `--model`, so
 it knows to drop its own. When we emit none — an endpoint profile — the
@@ -157,26 +179,24 @@ bun test launch.test.ts
 Four levels: the process contract against this real directory, node-and-bun
 agreement, the engine against a made-up world, and the golden matrix.
 
-`matrix.golden.txt` is the whole config rendered. Any rules change shows up as
-a readable diff there, so regenerate it in the same commit:
+`matrix.golden.txt` is the whole config rendered — against a PINNED world
+(`--pinned`: no env, no disk probes) and without local pools, so the file is
+identical on every machine. Any rules change shows up as a readable diff
+there, so regenerate it in the same commit:
 
 ```bash
-bun launch.ts matrix --models ",claude-opus-5,claude-opus-4-8[200k],sonnet" > matrix.golden.txt
+bun launch.ts matrix --pinned --pools none --models ",claude-opus-5,claude-opus-4-8[200k],sonnet" > matrix.golden.txt
 ```
 
-## Pending: the bash cutover
+## Distribution
 
-`rules.ts` carries a `launcherDefaults` table — the shared system prompt, the
-`.mcp.json`, the ccc-statusd and MiniMax MCP configs, and
-`--disallowedTools=WebSearch`. The bash wrappers still inject all of that
-today, so the table is **off** (`OWN_LAUNCHER_DEFAULTS = false`). Turning it on
-before the bash is cut over would double every `--mcp-config`.
+This directory ships in the UCC package: the worker repo vendors it at
+`worker/launch-config/`, uploads it to R2 with the other templates, and the
+installer extracts it to `$UCC_HOME/config/` on every machine. Two rules keep
+that safe:
 
-Preview the flipped state without flipping it:
-
-```bash
-bun launch.ts explain --own-defaults --role worker
-bun launch.ts matrix  --own-defaults
-```
-
-The cutover order is written at the top of that table in `rules.ts`.
+- **Nothing user-specific in shipped files.** Per-user state is
+  `pools.local.json`, which the installer never writes.
+- **A git checkout wins.** When `$UCC_HOME/config/.git` exists (this
+  development machine), the installer leaves the directory alone entirely.
+  Sync the vendored copy from here in the same change that edits the rules.

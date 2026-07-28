@@ -1,14 +1,13 @@
 // ═══════════════════════════════════════════════════════════════════════════
 // rules.ts — THE launch config. Pure data. This is the file you edit.
 //
-// Six tables, read top to bottom:
+// Five tables, read top to bottom:
 //
 //   defaults          what every launch starts with
 //   arms              a model + the system prompt that belongs to it
-//   pools             named sets of ucc profiles
+//   pools             named sets of ucc profiles (members live in a LOCAL file)
 //   routes            THE ROUTER — first match wins, and it picks the arm
 //   layers            additive config — every match applies, in order
-//   launcherDefaults  the layers the bash wrappers still own (OFF today)
 //
 // Nothing in this file runs. No fs, no process.env, no conditionals. A rule
 // states WHEN it applies and WHAT it wants; launch.ts answers the when (from
@@ -23,6 +22,11 @@
 //   1. defaults   2. the arm the router picked   3. matching layers, in order
 // Scalars: last writer wins. Lists (skills, append, mcp, tools): accumulate.
 // A flag the caller already passed on the command line is never overridden.
+//
+// THIS FILE SHIPS IN THE UCC PACKAGE. It is installed to $UCC_HOME/config/ on
+// every machine, so nothing user- or machine-specific may appear here — no
+// profile names that belong to one account, no absolute paths outside
+// $UCC_HOME. Per-user state lives in pools.local.json (see § pools).
 // ═══════════════════════════════════════════════════════════════════════════
 
 export type Append = { file: string } | { text: string };
@@ -86,8 +90,6 @@ export type Route = {
 export type Layer = {
   when?: When;
   requires?: string[];
-  /** a default, not an override: only fills fields nothing has set yet */
-  fallback?: boolean;
   /** replaces the harness base system prompt */
   systemPrompt?: string;
   /** appended to the system prompt, in order */
@@ -119,8 +121,8 @@ export const defaults: Layer = {
 // A model never travels alone — it carries the system prompt written for it.
 //
 // EVERY claude id carries the [1m] postfix. Without it the session reports a
-// 200k context window, which is wrong. The router strips the postfix before
-// matching, so a route says `claude-opus-5` and both spellings reach it.
+// 200k context window. The router strips the postfix before matching, so a
+// route says `claude-opus-5` and both spellings reach it.
 
 // A role gets a WHOLE prompt, not an overlay — one file per case, written
 // somewhere else and only pointed at from here. So an arm is a (model, prompt)
@@ -179,10 +181,21 @@ export const ENDPOINT_SERVES_ITS_OWN_MODEL = "env:ANTHROPIC_BASE_URL";
 // ─── pools ──────────────────────────────────────────────────────────────────
 // Named sets of ucc profiles. A route matches a pool instead of listing
 // profiles inline, so one account moves between fleets by moving one line.
+//
+// MEMBERS ARE PER-USER, so they do NOT live in this shipped file. The engine
+// merges members from `pools.local.json` next to this file — plain JSON,
+// written by hand or by tooling, never touched by the installer:
+//
+//   { "FABLE_SPENT": ["some_profile_3x"] }
+//
+// This table only DECLARES the pools routes may name (a route naming a pool
+// that exists nowhere is a typo and fails loud).
 
 export const pools: Record<string, string[]> = {
-  /** accounts whose fable quota is spent — they never route to the fable arm */
-  FABLE_SPENT: ["does_bannock_6u"],
+  /** accounts whose fable quota is spent or unavailable — the account may
+   *  still have credit, but fable is metered separately, so these never
+   *  route to the fable arm. Members: pools.local.json. */
+  FABLE_SPENT: [],
 };
 
 // ─── routes ─────────────────────────────────────────────────────────────────
@@ -251,47 +264,12 @@ export const routes: Route[] = [
 // ─── layers ─────────────────────────────────────────────────────────────────
 // Additive config. Every layer whose `when` matches and whose `requires` hold
 // applies, in this order.
-
-// Nothing needs one today: a role's whole prompt is its arm, and the launcher
-// defaults below are the only other users. Add a layer here when something
-// must apply ON TOP of an arm rather than instead of it.
-export const layers: Layer[] = [];
-
-// ─── launcherDefaults ───────────────────────────────────────────────────────
-// The bash wrappers (ucc-<profile>, ucc-auto, ucc-sdk) still inject these
-// today, so they are OFF here — turning them on without cutting the bash over
-// would double every --mcp-config.
 //
-// Cutover, in order:
-//   1. forward the caller's argv into launch.ts (so it can see what the user
-//      already passed and stay out of the way)
-//   2. delete ucc_resolve_prompt_args + the two mcp helpers from
-//      constants.mjs / install-wrappers.mjs / profile-cli.mjs, regenerate
-//   3. stop the wrapper re-rendering a spawn that ccc-tmux already rendered
-//   4. flip OWN_LAUNCHER_DEFAULTS to true
-//
-// Note for step 4: with these ON the matrix depends on the machine's env and
-// disk, so `matrix.golden.txt` must be regenerated with a pinned world.
-//
-// Preview the flipped state any time, without flipping it:
-//   bun launch.ts explain --own-defaults --role worker
-//   bun launch.ts matrix  --own-defaults
+// The engine owns ALL launch config — the bash wrappers inject nothing. The
+// old shared-SYSTEM_PROMPT.md convention is gone: a launch's whole prompt is
+// its arm's file, and these layers add only functional config (mcp servers).
 
-export const OWN_LAUNCHER_DEFAULTS = false;
-
-export const launcherDefaults: Layer[] = [
-  {
-    why: "shared base system prompt — only when no arm brought one",
-    requires: ["file:~/.local/share/ucc/shared/SYSTEM_PROMPT.md"],
-    fallback: true,
-    systemPrompt: "~/.local/share/ucc/shared/SYSTEM_PROMPT.md",
-  },
-  {
-    why: "shared system prompt append — only when no role brief took the slot",
-    requires: ["file:~/.local/share/ucc/shared/SYSTEM_PROMPT_APPEND.md"],
-    fallback: true,
-    append: [{ file: "~/.local/share/ucc/shared/SYSTEM_PROMPT_APPEND.md" }],
-  },
+export const layers: Layer[] = [
   {
     why: "shared mcp servers (tolaria, shellkit)",
     requires: ["file:~/.local/share/ucc/shared/.mcp.json"],

@@ -24,12 +24,14 @@ import {
   probe,
   fixedWorld,
   splitEffort,
+  siftArgv,
   withOneM,
   bareId,
   interpolate,
   interpolateDeep,
   matches,
   buildMatrix,
+  readLocalPools,
   type Ctx,
   type Plan,
   type World,
@@ -38,8 +40,9 @@ import {
 const LAUNCH = join(import.meta.dir, "launch.ts");
 const SHARED_NODE = join(homedir(), ".local/share/ucc/shared/node/bin/node");
 
-/** the command matrix.golden.txt is generated with */
-const GOLDEN_ARGS = ["matrix", "--models", ",claude-opus-5,claude-opus-4-8[200k],sonnet"];
+/** the command matrix.golden.txt is generated with — pinned world and no
+ *  local pools, so the file is identical on every machine */
+const GOLDEN_ARGS = ["matrix", "--pinned", "--pools", "none", "--models", ",claude-opus-5,claude-opus-4-8[200k],sonnet"];
 
 interface RunResult {
   exitCode: number;
@@ -205,10 +208,30 @@ describe("deployed selection (process contract, real repo)", () => {
     }
   });
 
-  test("a spent fable quota sends that account's advisor to opus-5", () => {
-    const r = run(["--profile", "does_bannock_6u", "--role", "advisor"]);
+  test("a spent fable quota (pools.local.json) sends that advisor to opus-5", () => {
+    const dir = mkdtempSync(join(tmpdir(), "launch-pools-"));
+    const fixture = join(dir, "pools.local.json");
+    writeFileSync(fixture, JSON.stringify({ FABLE_SPENT: ["spent_acct_1a"] }));
+    const r = run(["--pools", fixture, "--profile", "spent_acct_1a", "--role", "advisor"]);
+    rmSync(dir, { recursive: true, force: true });
     expect(modelOf(r)).toBe("claude-opus-5[1m]");
     expect(r.json!.trace.join(" ")).toContain("quota spent");
+  });
+
+  test("without a local pools entry the same advisor stays on fable", () => {
+    const r = run(["--pools", "none", "--profile", "spent_acct_1a", "--role", "advisor"]);
+    expect(modelOf(r)).toBe("claude-fable-5[1m]");
+  });
+
+  test("a malformed pools.local.json warns and never breaks the launch", () => {
+    const dir = mkdtempSync(join(tmpdir(), "launch-pools-bad-"));
+    const fixture = join(dir, "pools.local.json");
+    writeFileSync(fixture, "{not json");
+    const r = run(["--pools", fixture, "--role", "advisor"]);
+    rmSync(dir, { recursive: true, force: true });
+    expect(r.exitCode).toBe(0);
+    expect(modelOf(r)).toBe("claude-fable-5[1m]");
+    expect(r.stderr).toContain("ignoring local pools");
   });
 
   test("JSON param form ≡ flag form", () => {
@@ -268,6 +291,104 @@ describe("deployed selection (process contract, real repo)", () => {
     expect(out).toContain("route [");
     expect(out).toContain("arm opus-5");
     expect(out).toContain("argv");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe("forwarded argv (the wrapper passes its whole command line)", () => {
+  const withArgv = (argv: string[], extra: string[] = []) =>
+    run([JSON.stringify({ argv }), ...extra]);
+
+  test("--system-prompt from the caller suppresses the arm prompt (the ucc-* bug)", () => {
+    // ucc-<p> --tools "" --system-prompt "." --safe-mode --model haiku
+    const r = withArgv(["--tools", "", "--system-prompt", ".", "--safe-mode", "--model", "haiku"]);
+    expect(r.exitCode).toBe(0);
+    expect(r.json!.argv).not.toContain("--system-prompt-file");
+    // haiku matches no route: it passes through as a real id
+    expect(modelOf(r)).toBe("haiku");
+  });
+
+  test("--system-prompt-file from the caller suppresses ours too", () => {
+    const r = withArgv(["--system-prompt-file", "/tmp/mine.md"]);
+    expect(r.json!.argv).not.toContain("--system-prompt-file");
+  });
+
+  test("the requested model is read from argv and emitted normalized", () => {
+    const viaArgv = withArgv(["--model", "claude-opus-5"]);
+    expect(modelOf(viaArgv)).toBe("claude-opus-5[1m]");
+    expect(viaArgv.json!.model_matched).toBe(true);
+    expect(promptOf(viaArgv)).toBe("opus-5-stance.md");
+  });
+
+  test("--model= form works and the last --model wins", () => {
+    const r = withArgv(["--model=claude-opus-5", "--model", "claude-fable-5"]);
+    expect(modelOf(r)).toBe("claude-fable-5[1m]");
+  });
+
+  test("a resume launch keeps the session's model and effort but gets its prompt", () => {
+    const r = withArgv(["-c"]);
+    expect(r.exitCode).toBe(0);
+    expect(r.json!.argv).not.toContain("--model");
+    expect(r.json!.argv).not.toContain("--effort");
+    expect(r.json!.model_matched).toBe(false);
+    expect(promptOf(r)).toBe("opus-5-stance.md");
+    expect(r.json!.trace.join(" ")).toContain("resume/continue");
+  });
+
+  test("an explicitly requested model on resume is honored, normalized", () => {
+    const r = withArgv(["-r", "abcd1234", "--model", "claude-opus-5"]);
+    expect(modelOf(r)).toBe("claude-opus-5[1m]");
+    expect(r.json!.model_matched).toBe(true);
+  });
+
+  test("a second render over already-rendered flags adds nothing but the model", () => {
+    // what a ccc-tmux spawn hands the wrapper: everything already rendered
+    const r = withArgv([
+      "--session-id", "0f0f",
+      "--system-prompt-file", "/x/prompts/opus-5-stance.worker.md",
+      "--effort", "xhigh",
+      "--mcp-config=/x/shared/.mcp.json",
+      "--model", "claude-opus-5[1m]",
+      "do the thing",
+    ]);
+    expect(r.json!.argv).toEqual(["--model", "claude-opus-5[1m]"]);
+    expect(r.json!.model_matched).toBe(true);
+  });
+
+  test("a positional that mentions --model is not a model request", () => {
+    const r = withArgv(["fix the --model flag parser"]);
+    expect(modelOf(r)).toBe("claude-opus-5[1m]");
+  });
+
+  test("siftArgv: extraction, stripping, resume detection", () => {
+    expect(siftArgv(["--model", "m1", "a", "--model=m2"])).toEqual({
+      model: "m2",
+      resume: false,
+      argv: ["a"],
+    });
+    expect(siftArgv(["-r", "id", "x"])).toEqual({ model: undefined, resume: true, argv: ["-r", "id", "x"] });
+    expect(siftArgv(["--continue"])).toEqual({ model: undefined, resume: true, argv: ["--continue"] });
+    expect(siftArgv(["--resume=abc"])).toEqual({ model: undefined, resume: true, argv: ["--resume=abc"] });
+    expect(siftArgv(["hello --model world"])).toEqual({
+      model: undefined,
+      resume: false,
+      argv: ["hello --model world"],
+    });
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe("local pools file", () => {
+  test("missing file is an empty table", () => {
+    expect(readLocalPools("/nonexistent/pools.local.json")).toEqual({});
+  });
+
+  test("valid file parses; malformed entries are skipped", () => {
+    const dir = mkdtempSync(join(tmpdir(), "pools-unit-"));
+    const f = join(dir, "pools.local.json");
+    writeFileSync(f, JSON.stringify({ FABLE_SPENT: ["a", "b"], BAD: "not-array", WORSE: [1] }));
+    expect(readLocalPools(f)).toEqual({ FABLE_SPENT: ["a", "b"] });
+    rmSync(dir, { recursive: true, force: true });
   });
 });
 
@@ -451,10 +572,13 @@ describe("engine: matching", () => {
     expect(matches({ noModel: true }, ctx({ model: "x" }), w)).toBe(false);
   });
 
-  test("pool membership", () => {
-    expect(matches({ pool: "FABLE_SPENT" }, ctx({ profile: "does_bannock_6u" }), w)).toBe(true);
-    expect(matches({ pool: "FABLE_SPENT" }, ctx({ profile: "vows_yogic_9k" }), w)).toBe(false);
-    expect(matches({ pool: "FABLE_SPENT" }, ctx(), w)).toBe(false);
+  test("pool membership comes from the world's local pools", () => {
+    const lw = fixedWorld({ localPools: { FABLE_SPENT: ["local_acct"] } });
+    expect(matches({ pool: "FABLE_SPENT" }, ctx({ profile: "local_acct" }), lw)).toBe(true);
+    expect(matches({ pool: "FABLE_SPENT" }, ctx({ profile: "vows_yogic_9k" }), lw)).toBe(false);
+    expect(matches({ pool: "FABLE_SPENT" }, ctx(), lw)).toBe(false);
+    // the shipped table is empty — with no local file nobody is fable-spent
+    expect(matches({ pool: "FABLE_SPENT" }, ctx({ profile: "local_acct" }), w)).toBe(false);
   });
 
   test("model patterns: exact and trailing-* prefix", () => {
@@ -597,7 +721,7 @@ describe("engine: probes", () => {
   });
 
   test("separate requires entries AND — one unmet skips the layer", () => {
-    const w = fixedWorld({ ownLauncherDefaults: true, hasBin: (n) => n === "uvx", env: {} });
+    const w = fixedWorld({ hasBin: (n) => n === "uvx", env: {} });
     const plan = resolve({ harness: "claude" }, w);
     expect(plan.config.mcp).toEqual([]);
     expect(plan.trace.join("\n")).toContain("skipped — needs");
@@ -746,16 +870,16 @@ describe("engine: precedence and emit", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-describe("the launcher-defaults cutover", () => {
-  test("OFF by default — bash still owns the shared prompt and mcp configs", () => {
+describe("mcp layers — the engine owns all launch config, bash injects nothing", () => {
+  test("a bare world gets no mcp: every layer's requires is unmet, and says so", () => {
     const plan = resolve({ harness: "claude", role: "worker" }, fixedWorld());
     expect(plan.config.mcp).toEqual([]);
     expect(plan.config.systemPromptFile).toBe("prompts/opus-5-stance.worker.md");
+    expect(plan.trace.join("\n")).toContain("skipped — needs");
   });
 
-  test("ON: mcp configs accumulate, but a fallback never overrides an arm", () => {
+  test("mcp configs accumulate and never displace the arm's prompt", () => {
     const w = fixedWorld({
-      ownLauncherDefaults: true,
       env: { HOME: "/home/zt", SUPERZ_BOT_TOKEN: "t" },
       hasFile: () => true,
       hasExec: () => true,
@@ -765,9 +889,8 @@ describe("the launcher-defaults cutover", () => {
     expect(worker.config.mcp.length).toBe(2);
   });
 
-  test("ON: minimax adds its mcp and disallows WebSearch only when its gates hold", () => {
+  test("minimax adds its mcp and disallows WebSearch only when its gates hold", () => {
     const base = {
-      ownLauncherDefaults: true,
       hasFile: () => false,
       hasExec: () => false,
       hasBin: (n: string) => n === "uvx",
@@ -788,11 +911,10 @@ describe("the launcher-defaults cutover", () => {
     expect(resolve({ harness: "claude" }, fixedWorld({ ...base, env: {} })).config.mcp).toEqual([]);
   });
 
-  test("ON: a minimax base url without an explicit key uses the auth token", () => {
+  test("a minimax base url without an explicit key uses the auth token", () => {
     const plan = resolve(
       { harness: "claude" },
       fixedWorld({
-        ownLauncherDefaults: true,
         hasBin: (n) => n === "uvx",
         env: { ANTHROPIC_BASE_URL: "https://api.minimax.io/anthropic", ANTHROPIC_AUTH_TOKEN: "tok" },
       }),
@@ -807,8 +929,8 @@ describe("the launcher-defaults cutover", () => {
 describe("matrix", () => {
   test("every combination renders, and each names a model or explains why not", () => {
     const rows = buildMatrix(
-      { profiles: ["", "codex", "does_bannock_6u"], roles: ["", "advisor", "worker"], models: [""], cwds: [""] },
-      { ...fixedWorld(), pick: (c) => c[0] },
+      { profiles: ["", "codex", "spent_acct_1a"], roles: ["", "advisor", "worker"], models: [""], cwds: [""] },
+      { ...fixedWorld({ localPools: { FABLE_SPENT: ["spent_acct_1a"] } }), pick: (c) => c[0] },
     );
     expect(rows).toHaveLength(9);
     for (const r of rows) {
@@ -817,6 +939,8 @@ describe("matrix", () => {
     }
     expect(rows.find((r) => r.profile === "codex" && r.role === "worker")!.arm).toBe("gpt-5.6-sol:worker");
     expect(rows.find((r) => r.profile === "" && r.role === "advisor")!.arm).toBe("fable:advisor");
+    // the local pool reroutes only that account's advisor
+    expect(rows.find((r) => r.profile === "spent_acct_1a" && r.role === "advisor")!.arm).toBe("opus-5:advisor");
   });
 
   test("a matrix run writes nothing", () => {
