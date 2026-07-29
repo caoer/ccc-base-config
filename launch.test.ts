@@ -113,7 +113,7 @@ describe("deployed selection (process contract, real repo)", () => {
       const r = run(args);
       const appended = r.promptFiles["--append-system-prompt-file"];
       expect(appended).toContain("# Harness Environment");
-      expect(appended).toContain("Bash timeouts are policy");
+      expect(appended).toContain("never kills a command");
     }
   });
 
