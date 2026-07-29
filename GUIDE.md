@@ -18,7 +18,8 @@ snapshot of the whole config), `matrix-viewer.html` (the debug page template),
 
 Three steps, always in this order:
 
-1. **defaults** — effort `xhigh`, verbose off.
+1. **defaults** — effort `xhigh`, verbose off, and the fleet-wide
+   `disallowedTools` list (an array; every launch drops those tools).
 2. **the router** — the first matching route in `routes` wins and names an
    **arm**. An arm is a `(model, prompt)` pair.
 3. **layers** — every matching layer applies, in order, on top.

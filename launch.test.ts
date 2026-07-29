@@ -348,6 +348,7 @@ describe("forwarded argv (the wrapper passes its whole command line)", () => {
       "--system-prompt-file", "/x/prompts/opus-5-stance.worker.md",
       "--effort", "xhigh",
       "--mcp-config=/x/shared/.mcp.json",
+      "--disallowedTools=TaskOutput",
       "--model", "claude-opus-5[1m]",
       "do the thing",
     ]);
@@ -899,7 +900,7 @@ describe("mcp layers — the engine owns all launch config, bash injects nothing
       { harness: "claude" },
       fixedWorld({ ...base, env: { MINIMAX_API_KEY: "k", MINIMAX_API_HOST: "https://h.example" } }),
     );
-    expect(armed.config.disallowedTools).toEqual(["WebSearch"]);
+    expect(armed.config.disallowedTools).toEqual(["TaskOutput", "WebSearch"]);
     const cfg = armed.config.mcp[0] as { mcpServers: { MiniMax: { env: Record<string, string> } } };
     expect(cfg.mcpServers.MiniMax.env.MINIMAX_API_KEY).toBe("k");
     expect(cfg.mcpServers.MiniMax.env.MINIMAX_API_HOST).toBe("https://h.example");

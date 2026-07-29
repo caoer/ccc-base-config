@@ -114,6 +114,9 @@ export type Layer = {
 export const defaults: Layer = {
   effort: "xhigh",
   verbose: false,
+  /** the fleet-wide disable list — every launch drops these. Add a name here
+   *  to take a built-in tool away from every agent on every profile. */
+  disallowedTools: ["TaskOutput"],
   why: "base",
 };
 
