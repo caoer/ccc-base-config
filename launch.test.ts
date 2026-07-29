@@ -108,6 +108,15 @@ describe("deployed selection (process contract, real repo)", () => {
     expect(r.json!.model_matched).toBe(true);
   });
 
+  test("every launch appends the harness-environment brief (Bash timeout policy)", () => {
+    for (const args of [[], ["--role", "worker"], ["--role", "advisor"], ["--model", "claude-opus-4-8"]]) {
+      const r = run(args);
+      const appended = r.promptFiles["--append-system-prompt-file"];
+      expect(appended).toContain("# Harness Environment");
+      expect(appended).toContain("Bash timeouts are policy");
+    }
+  });
+
   test("advisor is the one role that stays on fable", () => {
     const r = run(["--role", "advisor"]);
     expect(modelOf(r)).toBe("claude-fable-5[1m]");
@@ -122,10 +131,13 @@ describe("deployed selection (process contract, real repo)", () => {
     }
   });
 
-  test("a role gets a WHOLE prompt — nothing is appended or synthesized", () => {
+  test("a role gets a WHOLE prompt — the only append is the environment brief", () => {
     for (const role of ["advisor", "leader", "worker"]) {
       const r = run(["--role", role]);
-      expect(r.json!.argv).not.toContain("--append-system-prompt-file");
+      // the appended file is environment doctrine, never a role overlay
+      const appended = r.promptFiles["--append-system-prompt-file"];
+      expect(appended).toContain("# Harness Environment");
+      expect(appended).not.toContain(`**${role}**`);
       const prompt = r.promptFiles["--system-prompt-file"];
       expect(prompt).toContain(`You are ${role === "advisor" ? "an" : "a"} **${role}**`);
       // the arm's own doctrine is in the same file, not a separate flag
@@ -346,6 +358,7 @@ describe("forwarded argv (the wrapper passes its whole command line)", () => {
     const r = withArgv([
       "--session-id", "0f0f",
       "--system-prompt-file", "/x/prompts/opus-5-stance.worker.md",
+      "--append-system-prompt-file", "/x/prompts/harness-environment.md",
       "--effort", "xhigh",
       "--mcp-config=/x/shared/.mcp.json",
       "--disallowedTools=TaskOutput",
