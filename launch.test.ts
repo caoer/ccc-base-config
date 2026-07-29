@@ -108,12 +108,13 @@ describe("deployed selection (process contract, real repo)", () => {
     expect(r.json!.model_matched).toBe(true);
   });
 
-  test("every launch appends the harness-environment brief (Bash timeout policy)", () => {
+  test("every arm prompt bakes in the harness-environment brief (Bash timeout policy)", () => {
     for (const args of [[], ["--role", "worker"], ["--role", "advisor"], ["--model", "claude-opus-4-8"]]) {
       const r = run(args);
-      const appended = r.promptFiles["--append-system-prompt-file"];
-      expect(appended).toContain("# Harness Environment");
-      expect(appended).toContain("never kills the command");
+      expect(r.json!.argv).not.toContain("--append-system-prompt-file");
+      const prompt = r.promptFiles["--system-prompt-file"];
+      expect(prompt).toContain("# Harness Environment");
+      expect(prompt).toContain("never kills the command");
     }
   });
 
@@ -131,14 +132,13 @@ describe("deployed selection (process contract, real repo)", () => {
     }
   });
 
-  test("a role gets a WHOLE prompt — the only append is the environment brief", () => {
+  test("a role gets a WHOLE prompt — role brief, arm doctrine, environment brief in one file", () => {
     for (const role of ["advisor", "leader", "worker"]) {
       const r = run(["--role", role]);
-      // the appended file is environment doctrine, never a role overlay
-      const appended = r.promptFiles["--append-system-prompt-file"];
-      expect(appended).toContain("# Harness Environment");
-      expect(appended).not.toContain(`**${role}**`);
+      // one file carries everything; nothing rides a separate append flag
+      expect(r.json!.argv).not.toContain("--append-system-prompt-file");
       const prompt = r.promptFiles["--system-prompt-file"];
+      expect(prompt).toContain("# Harness Environment");
       expect(prompt).toContain(`You are ${role === "advisor" ? "an" : "a"} **${role}**`);
       // the arm's own doctrine is in the same file, not a separate flag
       expect(prompt).toContain("You are a software engineering agent");
@@ -358,7 +358,6 @@ describe("forwarded argv (the wrapper passes its whole command line)", () => {
     const r = withArgv([
       "--session-id", "0f0f",
       "--system-prompt-file", "/x/prompts/opus-5-stance.worker.md",
-      "--append-system-prompt-file", "/x/prompts/harness-environment.md",
       "--effort", "xhigh",
       "--mcp-config=/x/shared/.mcp.json",
       "--disallowedTools=TaskOutput",

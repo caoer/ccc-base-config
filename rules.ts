@@ -274,14 +274,6 @@ export const routes: Route[] = [
 
 export const layers: Layer[] = [
   {
-    // Environment doctrine rides the launch layer, not the arms: every arm on
-    // every model gets it, and it updates with install policy (the values are
-    // written by `ccc-statusd config generate`), never with a prompt rewrite.
-    why: "harness-environment brief (Bash timeout policy)",
-    requires: ["file:prompts/harness-environment.md"],
-    append: [{ file: "prompts/harness-environment.md" }],
-  },
-  {
     why: "shared mcp servers (tolaria, shellkit)",
     requires: ["file:~/.local/share/ucc/shared/.mcp.json"],
     mcp: ["~/.local/share/ucc/shared/.mcp.json"],
