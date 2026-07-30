@@ -274,6 +274,11 @@ export const routes: Route[] = [
 
 export const layers: Layer[] = [
   {
+    why: "workers/leaders launch without AskUserQuestion",
+    when: { role: ["worker", "leader"] },
+    disallowedTools: ["AskUserQuestion"],
+  },
+  {
     why: "shared mcp servers (tolaria, shellkit)",
     requires: ["file:~/.local/share/ucc/shared/.mcp.json"],
     mcp: ["~/.local/share/ucc/shared/.mcp.json"],
