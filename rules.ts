@@ -135,10 +135,10 @@ export const defaults: Layer = {
 
 export const arms: Record<string, Arm> = {
   // ── the fleet default ──
-  "opus-5": { model: "claude-opus-5[1m]", prompt: "prompts/opus-5-stance.md" },
-  "opus-5:advisor": { model: "claude-opus-5[1m]", prompt: "prompts/opus-5-stance.advisor.md" },
-  "opus-5:leader": { model: "claude-opus-5[1m]", prompt: "prompts/opus-5-stance.leader.md" },
-  "opus-5:worker": { model: "claude-opus-5[1m]", prompt: "prompts/opus-5-stance.worker.md" },
+  "opus-5": { model: "claude-opus-5[1m]", prompt: "prompts/opus-5-stance.md", effort: "medium" },
+  "opus-5:advisor": { model: "claude-opus-5[1m]", prompt: "prompts/opus-5-stance.advisor.md", effort: "medium" },
+  "opus-5:leader": { model: "claude-opus-5[1m]", prompt: "prompts/opus-5-stance.leader.md", effort: "medium" },
+  "opus-5:worker": { model: "claude-opus-5[1m]", prompt: "prompts/opus-5-stance.worker.md", effort: "medium" },
 
   // ── advisors stay here: the armed, battle-tested arm ──
   fable: { model: "claude-fable-5[1m]", prompt: "prompts/fable-5-calibration.md" },

@@ -358,7 +358,7 @@ describe("forwarded argv (the wrapper passes its whole command line)", () => {
     const r = withArgv([
       "--session-id", "0f0f",
       "--system-prompt-file", "/x/prompts/opus-5-stance.worker.md",
-      "--effort", "xhigh",
+      "--effort", "medium",
       "--mcp-config=/x/shared/.mcp.json",
       "--disallowedTools=TaskOutput",
       "--model", "claude-opus-5[1m]",
@@ -754,7 +754,7 @@ describe("engine: precedence and emit", () => {
     const plan = resolve({ harness: "claude", role: "worker" }, w);
     expect(plan.arm).toBe("opus-5:worker");
     expect(plan.config.systemPromptFile).toBe("prompts/opus-5-stance.worker.md");
-    expect(plan.config.effort).toBe("xhigh");
+    expect(plan.config.effort).toBe("medium");
     expect(plan.config.append).toEqual([]);
   });
 
