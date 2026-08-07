@@ -283,10 +283,16 @@ export const layers: Layer[] = [
     requires: ["file:~/.local/share/ucc/shared/.mcp.json"],
     mcp: ["~/.local/share/ucc/shared/.mcp.json"],
   },
+  // U1.0 transport unification: the two ccc-statusd layers below are mutually
+  // exclusive on one probe. Until the DRAIN cutover exports the daemon-minted
+  // CCC_STATUSD_MCP_TOKEN (ccc-statusd docs/j2-transport-cutover-runbook.md),
+  // every launch keeps the stdio sidecar; the export is the cutover switch,
+  // and unexporting it is the rollback.
   {
-    why: "ccc-statusd mcp — only once telegram is configured",
+    why: "ccc-statusd mcp, stdio sidecar — retired at the U1.0 DRAIN cutover; inert once the daemon-served token is exported",
     requires: [
       "exec:${HOME}/.local/bin/ccc-statusd",
+      "!env:CCC_STATUSD_MCP_TOKEN",
       "env:SUPERZ_BOT_TOKEN | file:${CCC_TELEGRAM_SECRETS_FILE} | file:${CCC_TELEGRAM_DATA_DIR:-~/.local/share/ucc/data/ccc-telegram}/telegram.yaml",
     ],
     mcp: [
@@ -296,6 +302,28 @@ export const layers: Layer[] = [
             type: "stdio",
             command: "${HOME}/.local/bin/ccc-statusd",
             args: ["mcp"],
+            timeout: 86400000,
+          },
+        },
+      },
+    ],
+  },
+  {
+    why: "ccc-statusd mcp, daemon-served streamable HTTP (U1.0) — live once the DRAIN cutover exports the daemon-minted token",
+    requires: [
+      "exec:${HOME}/.local/bin/ccc-statusd",
+      "env:CCC_STATUSD_MCP_TOKEN",
+      "env:SUPERZ_BOT_TOKEN | file:${CCC_TELEGRAM_SECRETS_FILE} | file:${CCC_TELEGRAM_DATA_DIR:-~/.local/share/ucc/data/ccc-telegram}/telegram.yaml",
+    ],
+    mcp: [
+      {
+        mcpServers: {
+          "ccc-statusd": {
+            type: "http",
+            url: "http://localhost:${CCC_STATUSD_MCP_PORT:-19223}/mcp",
+            headers: {
+              Authorization: "Bearer ${CCC_STATUSD_MCP_TOKEN}",
+            },
             timeout: 86400000,
           },
         },
