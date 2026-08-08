@@ -187,7 +187,8 @@ describe("deployed selection (process contract, real repo)", () => {
     const r = run(["--model", "gpt-5.6-sol-max"]);
     expect(modelOf(r)).toBe("gpt-5.6-sol-max");
     expect(r.json!.argv).not.toContain("--system-prompt-file");
-    expect(r.json!.argv[r.json!.argv.indexOf("--effort") + 1]).toBe("xhigh");
+    // no route matched → no arm → effort stays untouched too
+    expect(r.json!.argv).not.toContain("--effort");
   });
 
   test("unknown model passes through as a real id (never silently swallowed)", () => {

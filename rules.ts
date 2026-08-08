@@ -112,7 +112,8 @@ export type Layer = {
 // ─── defaults ───────────────────────────────────────────────────────────────
 
 export const defaults: Layer = {
-  effort: "xhigh",
+  // No effort here on purpose: effort belongs to the arm the router picks.
+  // A launch that matches no route keeps the harness/session effort untouched.
   verbose: false,
   /** the fleet-wide disable list — every launch drops these. Add a name here
    *  to take a built-in tool away from every agent on every profile. */
@@ -141,13 +142,13 @@ export const arms: Record<string, Arm> = {
   "opus-5:worker": { model: "claude-opus-5[1m]", prompt: "prompts/opus-5-stance.worker.md", effort: "medium" },
 
   // ── advisors stay here: the armed, battle-tested arm ──
-  fable: { model: "claude-fable-5[1m]", prompt: "prompts/fable-5-calibration.md" },
-  "fable:advisor": { model: "claude-fable-5[1m]", prompt: "prompts/fable-5-calibration.advisor.md" },
-  "fable:leader": { model: "claude-fable-5[1m]", prompt: "prompts/fable-5-calibration.leader.md" },
-  "fable:worker": { model: "claude-fable-5[1m]", prompt: "prompts/fable-5-calibration.worker.md" },
+  fable: { model: "claude-fable-5[1m]", prompt: "prompts/fable-5-calibration.md", effort: "xhigh" },
+  "fable:advisor": { model: "claude-fable-5[1m]", prompt: "prompts/fable-5-calibration.advisor.md", effort: "xhigh" },
+  "fable:leader": { model: "claude-fable-5[1m]", prompt: "prompts/fable-5-calibration.leader.md", effort: "xhigh" },
+  "fable:worker": { model: "claude-fable-5[1m]", prompt: "prompts/fable-5-calibration.worker.md", effort: "xhigh" },
 
   // ── reached only by an explicit --model ──
-  "opus-4-8": { model: "claude-opus-4-8[1m]", prompt: "prompts/opus-4-operator.md" },
+  "opus-4-8": { model: "claude-opus-4-8[1m]", prompt: "prompts/opus-4-operator.md", effort: "xhigh" },
 
   // ── endpoints that speak their own model ids, and have no claude-opus-5.
   //    They pin: an explicitly requested claude id would be rejected upstream.
