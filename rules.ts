@@ -166,6 +166,11 @@ export const arms: Record<string, Arm> = {
   "grok-4.5:advisor": { model: "grok-4.5[1m]", prompt: "prompts/fable-5-calibration.advisor.md", effort: "xhigh", pin: true },
   "grok-4.5:leader": { model: "grok-4.5[1m]", prompt: "prompts/fable-5-calibration.leader.md", effort: "xhigh", pin: true },
   "grok-4.5:worker": { model: "grok-4.5[1m]", prompt: "prompts/fable-5-calibration.worker.md", effort: "xhigh", pin: true },
+
+  "deepseek-v4-flash:cloud": { model: "deepseek-v4-flash:cloud[1m]", prompt: "prompts/fable-5-calibration.md", effort: "max", pin: true },
+  "deepseek-v4-flash:cloud:advisor": { model: "deepseek-v4-flash:cloud[1m]", prompt: "prompts/fable-5-calibration.advisor.md", effort: "max", pin: true },
+  "deepseek-v4-flash:cloud:leader": { model: "deepseek-v4-flash:cloud[1m]", prompt: "prompts/fable-5-calibration.leader.md", effort: "max", pin: true },
+  "deepseek-v4-flash:cloud:worker": { model: "deepseek-v4-flash:cloud[1m]", prompt: "prompts/fable-5-calibration.worker.md", effort: "max", pin: true },
 };
 
 // ─── third-party endpoints ──────────────────────────────────────────────────
@@ -173,7 +178,8 @@ export const arms: Record<string, Arm> = {
 // serves its own models — a claude id means nothing there. When this probe
 // holds we emit NO --model at all, and the profile's own ANTHROPIC_MODEL
 // applies. That is ~27 of the installed profiles (zenmux, vol, glm, minimax,
-// deepseek …), none of which are named in the routes below.
+// deepseek …), none of which are named in the routes below — deepseek-ollama
+// is the one exception, routed below because its endpoint serves a known id.
 //
 // A `pin`ned arm is the exception: pinning states that we DO know this
 // endpoint's model id. codex depends on it — its .env sets no ANTHROPIC_MODEL,
@@ -232,6 +238,11 @@ export const routes: Route[] = [
   { when: { profile: "grok", role: "leader" }, use: "grok-4.5:leader" },
   { when: { profile: "grok", role: "worker" }, use: "grok-4.5:worker" },
   { when: { profile: "grok" }, use: "grok-4.5", why: "grok endpoint" },
+
+  { when: { profile: "deepseek-ollama", role: "advisor" }, use: "deepseek-v4-flash:cloud:advisor" },
+  { when: { profile: "deepseek-ollama", role: "leader" }, use: "deepseek-v4-flash:cloud:leader" },
+  { when: { profile: "deepseek-ollama", role: "worker" }, use: "deepseek-v4-flash:cloud:worker" },
+  { when: { profile: "deepseek-ollama" }, use: "deepseek-v4-flash:cloud", why: "ollama endpoint" },
 
   // 2. the caller named a model. An effort suffix (-low … -max) and the [1m]
   //    postfix are both stripped before these are matched. Role first: asking
