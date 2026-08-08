@@ -209,10 +209,38 @@ describe("deployed selection (process contract, real repo)", () => {
     expect(modelOf(run(["--profile", "kimi-k3-moonshot"]))).toBe("k3[1m]");
   });
 
-  test("a pinned endpoint ignores an explicitly requested claude model", () => {
+  // zt-queue #17 (fail LOUD or obey): the pinned arm used to swallow the
+  // request silently — the launcher's worst fault. Now it refuses.
+  test("a pinned endpoint REFUSES an explicitly requested other model — exit 2, servable Fix", () => {
     const r = run(["--profile", "codex", "--model", "claude-opus-5"]);
-    expect(modelOf(r)).toBe("gpt-5.6-sol[1m]");
-    expect(r.json!.trace.join(" ")).toContain("pinned");
+    expect(r.exitCode).toBe(2);
+    expect(r.stdout).toBe(""); // nothing to splice — the launch must not proceed
+    expect(r.stderr).toContain("REFUSED");
+    expect(r.stderr).toContain("gpt-5.6-sol[1m]"); // names what it serves
+    expect(r.stderr).toContain("drop --model"); // and teaches the way out
+  });
+
+  test("a pinned endpoint honors a request for its own id, either spelling", () => {
+    for (const spelling of ["k3", "k3[1m]"]) {
+      const r = run(["--profile", "kimi-k3-moonshot", "--model", spelling]);
+      expect(r.exitCode).toBe(0);
+      expect(modelOf(r)).toBe("k3[1m]");
+      expect(r.json!.trace.join(" ")).toContain("matches request");
+    }
+  });
+
+  test("an effort suffix on the pinned id becomes the effort — endpoint effort is expressible", () => {
+    const r = run(["--profile", "kimi-k3-moonshot", "--model", "k3-max"]);
+    expect(r.exitCode).toBe(0);
+    expect(modelOf(r)).toBe("k3[1m]");
+    const i = r.json!.argv.indexOf("--effort");
+    expect(r.json!.argv[i + 1]).toBe("max");
+  });
+
+  test("explain surfaces the refusal and exits 2 too", () => {
+    const r = run(["explain", "--profile", "codex", "--model", "claude-opus-5"]);
+    expect(r.exitCode).toBe(2);
+    expect(r.stdout).toContain("REFUSED");
   });
 
   test("an endpoint profile applies to every role", () => {
@@ -524,7 +552,10 @@ describe("third-party endpoints (ANTHROPIC_BASE_URL)", () => {
   test("an explicitly requested model is dropped too, so the caller's own flag stands", () => {
     const plan = resolve({ harness: "claude", model: "claude-opus-5" }, endpoint());
     expect(plan.config.model).toBeUndefined();
+    expect(plan.refusal).toBeUndefined(); // pass-through is the designed override, not a refusal
     expect(emitClaude(plan, endpoint())).not.toContain("--model");
+    // ...but it says so: the endpoint decides what that flag means
+    expect(plan.warnings.join(" ")).toContain("rides through");
   });
 
   test("model_matched is false, so the wrapper keeps whatever the user passed", () => {

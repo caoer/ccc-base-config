@@ -17,6 +17,17 @@
 //   model_matched — argv carries a real --model; the caller drops its own
 //   trace         — which rules fired, in order (the debugging story)
 //
+// Exit codes (render/explain):
+//   0 — rendered; splice the argv
+//   1 — the render itself broke (bad config, missing file); callers may
+//       degrade to a plain launch, warning on stderr
+//   2 — REFUSED: an explicitly requested model cannot be honored (a pinned
+//       endpoint arm serves a different id). The launching WRAPPER must abort:
+//       it is the last gate, and degrading there would land the wrong model —
+//       the exact fault this exit kills (zt-queue #17: fail LOUD or obey).
+//       A pre-spawn renderer (ccc-tmux) surfaces the refusal and splices no
+//       model of its own; the pane wrapper re-renders and enforces.
+//
 // Three stages, in this order, and nothing else:
 //
 //   resolve(ctx, world) → Plan     rules.ts + the machine → a decision
@@ -103,6 +114,9 @@ export type Plan = {
   config: Config;
   trace: string[];
   warnings: string[];
+  /** set when an explicitly requested model cannot be honored — the launch
+   *  must not proceed. render/explain exit 2; callers abort, never degrade. */
+  refusal?: string;
 };
 
 // The annotation is on the binding, not just the arrow: that is what lets
@@ -444,8 +458,10 @@ function applyLayer(c: Config, l: Layer, ctx: Ctx, world: World, trace: string[]
 export function resolve(ctx: Ctx, world: World): Plan {
   const trace: string[] = [];
   const warnings: string[] = [];
+  let refusal: string | undefined;
 
   const requested = splitEffort(ctx.model);
+  let explicitEffort = requested.effort;
   // What we would emit for an explicit request, and what the router matches on.
   const asked = requested.model ? withOneM(requested.model) : undefined;
   const c: Ctx = { ...ctx, model: requested.model ? bareId(requested.model) : undefined };
@@ -483,17 +499,45 @@ export function resolve(ctx: Ctx, world: World): Plan {
     const a = arms[arm];
     if (!a) fail(`rules.ts: route names unknown arm '${arm}'`);
     // An explicitly requested id is emitted as asked, so a variant spelling
-    // survives; the arm then supplies only the prompt and the effort. A pinned
-    // arm ignores the request — its endpoint speaks no other id.
-    const kept = asked !== undefined && !a.pin;
-    config.model = kept ? asked : a.model;
+    // survives; the arm then supplies only the prompt and the effort.
+    let armNote = "";
+    if (asked !== undefined && a.pin) {
+      // A pinned arm serves exactly ONE id. A request for that id — bare, or
+      // carrying an effort suffix (k3-max) — is honored, the suffix becoming
+      // the effort. Any OTHER id is REFUSED: silently replacing an explicit
+      // request was the launcher's worst fault (zt-queue #17, fail LOUD or
+      // obey), and its endpoint cannot serve the requested id anyway.
+      const pin = bareId(a.model);
+      let base = bareId(asked);
+      for (const e of EFFORTS) {
+        if (base === `${pin}-${e}`) {
+          base = pin;
+          explicitEffort = e;
+          trace.push(`model ${asked}: effort suffix on the pinned id → effort ${e}`);
+          break;
+        }
+      }
+      if (base === pin) {
+        armNote = " (pinned — matches request)";
+      } else {
+        refusal =
+          `--model ${ctx.model} cannot be served: profile '${c.profile ?? "?"}' routes to pinned arm ` +
+          `'${arm}', whose endpoint serves only ${a.model}. ` +
+          `Fix: drop --model to accept ${a.model} (request effort as --model ${pin}-<low|medium|high|xhigh|max>), ` +
+          `or launch from a profile that serves ${asked} — for claude ids pick a claude-account profile ` +
+          `(e.g. env -u UCC_PROFILE ucc-auto, or a ucc-<claude-profile> wrapper).`;
+        warnings.push(`REFUSED: ${refusal}`);
+      }
+      config.model = a.model;
+    } else if (asked !== undefined) {
+      config.model = asked;
+      armNote = " (as requested)";
+    } else {
+      config.model = a.model;
+    }
     if (a.prompt) config.systemPromptFile = a.prompt;
     if (a.effort) config.effort = a.effort;
-    trace.push(
-      `arm ${arm}: model ${config.model}` +
-        `${kept ? " (as requested)" : a.pin && asked ? " (pinned — request ignored)" : ""}` +
-        `${a.prompt ? `, prompt ${a.prompt}` : ""}`,
-    );
+    trace.push(`arm ${arm}: model ${config.model}${armNote}${a.prompt ? `, prompt ${a.prompt}` : ""}`);
   } else if (asked) {
     config.model = asked;
     trace.push(`no route matched — model ${asked} passes through as a real id`);
@@ -510,6 +554,15 @@ export function resolve(ctx: Ctx, world: World): Plan {
       `${ENDPOINT_SERVES_ITS_OWN_MODEL}: dropping --model ${config.model} — ` +
         `this endpoint serves its own, so ANTHROPIC_MODEL applies`,
     );
+    if (asked !== undefined) {
+      // The caller's own --model stays on its command line (model_matched=0),
+      // so the request rides through to the endpoint — the designed override
+      // path. Say so: the endpoint may serve it, reject it, or ignore it.
+      warnings.push(
+        `explicit --model ${ctx.model} rides through to an endpoint that serves its own models ` +
+          `(ANTHROPIC_BASE_URL is set) — the endpoint may serve, reject, or ignore it`,
+      );
+    }
     config.model = undefined;
   }
 
@@ -535,7 +588,7 @@ export function resolve(ctx: Ctx, world: World): Plan {
   }
 
   // An explicit effort suffix on the requested model beats every rule.
-  if (requested.effort) config.effort = requested.effort;
+  if (explicitEffort) config.effort = explicitEffort;
 
   // A role nobody routes on is a typo: it lands on the roleless arm and the
   // agent silently never learns what it is. Say so.
@@ -545,7 +598,7 @@ export function resolve(ctx: Ctx, world: World): Plan {
 
   warnings.push(...validate(config));
 
-  return { ctx: c, arm, candidates, config, trace, warnings };
+  return { ctx: c, arm, candidates, config, trace, warnings, refusal };
 }
 
 /** every role any route mentions — the set rules.ts actually knows */
@@ -1007,6 +1060,10 @@ if (isMain) {
 
   if (p.verb === "render") {
     const { argv, plan } = render(p.ctx, world);
+    if (plan.refusal) {
+      console.error(`launch: REFUSED — ${plan.refusal}`);
+      process.exit(2);
+    }
     if (p.output === "shell") {
       const q = (a: string) => (/^[A-Za-z0-9_@%+=:,./-]+$/.test(a) ? a : `'${a.replace(/'/g, `'\\''`)}'`);
       console.log(argv.map(q).join(" "));
@@ -1039,6 +1096,7 @@ if (isMain) {
     for (const w of plan.warnings) console.log(`  ! ${w}`);
     console.log("argv");
     for (const a of argv) console.log(`  ${a}`);
+    if (plan.refusal) process.exit(2);
   } else {
     const axes: Axes = {
       profiles: p.axes.profiles ?? ["", ...(p.allProfiles ? installedProfiles(world.env) : rulesProfiles(world.localPools))],

@@ -134,7 +134,11 @@ while fable is metered separately and unavailable. Listing the profile there
 reroutes only its advisor launches to opus-5.
 
 **Add an endpoint that speaks its own ids.** Give the arm `pin: true`, which
-means the requested model is ignored and this id is always sent.
+means this id is always sent. An explicit `--model` naming a *different* id is
+REFUSED (exit 2) — the endpoint cannot serve it, and silently replacing an
+explicit request is the launcher fault the refusal exists to kill. A request
+for the pinned id itself is honored, and an effort suffix on it (`k3-max`)
+becomes the effort.
 
 ## Who calls this
 
@@ -164,6 +168,14 @@ caller's own `--model` survives, which is what makes an explicit override work.
 If this script fails, the wrapper launches without rendered config and says so
 on stderr. `ccc-tmux` refuses to spawn a fleet agent rather than launch one
 with the wrong model.
+
+Exit 2 is different from failure: it is a REFUSAL — an explicit `--model` that
+a pinned arm cannot serve. stderr names what the endpoint serves and how to
+fix the call. The launching wrapper aborts on exit 2, never degrades: it is
+the last gate, and degrading there would land the silently-wrong model the
+refusal exists to kill. A pre-spawn renderer (ccc-tmux) surfaces the refusal
+and splices no model of its own — the pane wrapper re-renders and enforces,
+so no path launches a model the request did not name.
 
 The engine must run under **both** the ucc shared node and **bun**, since the
 two callers use different runtimes. It relies on node's native TypeScript
