@@ -557,6 +557,19 @@ describe("third-party endpoints (ANTHROPIC_BASE_URL)", () => {
     const plan = resolve({ harness: "claude", role: "worker" }, fixedWorld({ env: { ANTHROPIC_BASE_URL: "" } }));
     expect(plan.config.model).toBe("claude-opus-5[1m]");
   });
+
+  test("minimax runs at high effort — by base url or by model name", () => {
+    // minimax-us: minimax.io in the base url
+    expect(resolve({ harness: "claude", role: "worker" }, endpoint()).config.effort).toBe("high");
+    // minimax-vol: volces endpoint, only ANTHROPIC_MODEL names minimax
+    const vol = fixedWorld({
+      env: { ANTHROPIC_BASE_URL: "https://ark.cn-beijing.volces.com/api/coding", ANTHROPIC_MODEL: "minimax-m3" },
+    });
+    expect(resolve({ harness: "claude" }, vol).config.effort).toBe("high");
+    // a non-minimax endpoint is untouched
+    const other = fixedWorld({ env: { ANTHROPIC_BASE_URL: "https://zenmux.ai/api/anthropic" } });
+    expect(resolve({ harness: "claude" }, other).config.effort).toBe("medium");
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════

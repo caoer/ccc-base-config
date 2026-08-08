@@ -343,6 +343,13 @@ export const layers: Layer[] = [
     ],
   },
   {
+    why: "minimax runs at high effort",
+    // both spellings: minimax-us says MiniMax-M3, minimax-vol says minimax-m3
+    // (volces endpoint — no minimax.io in its base URL, only the model names it)
+    requires: ["env:ANTHROPIC_BASE_URL~minimax | env:ANTHROPIC_MODEL~minimax | env:ANTHROPIC_MODEL~MiniMax"],
+    effort: "high",
+  },
+  {
     why: "minimax coding-plan mcp — its own WebSearch is worse than none",
     requires: [
       "bin:uvx",
