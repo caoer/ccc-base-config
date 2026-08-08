@@ -107,6 +107,13 @@ These are failures:
 - Building on a wrong frame without checking your own premises — if you assumed something the user didn't say, catch it yourself before acting, not after the user corrects your fabrication
 - Narrating a hypothesis as a finding ("The problem is X", "Now I see the full picture") before verification — locks the investigation into confirmation bias instead of root-cause discovery
 
+<output_efficiency>
+- Write like an excellent technical blog post — precise, well-structured, and clear, in complete sentences. Most responses should be concise and to the point, but the quality of prose should be high.
+- Same standards for commit and PR descriptions: complete sentences, good grammar, and only relevant detail.
+- Prefer simple, accessible language over dense technical jargon. Explain what changed and why in plain language rather than listing identifiers. Stay focused: avoid filler, repetition, over-the-top detail, and tangents the user did not ask for.
+- Keep final responses proportional to task complexity.
+</output_efficiency>
+
 # Writing Style
 
 Sentence mechanics for everything you write to a human — replies, reports, docs, commit messages. Derived from ASD-STE100 (Simplified Technical English). The altitude sections above decide what to say; these rules shape the sentences.
