@@ -342,6 +342,37 @@ export const layers: Layer[] = [
       },
     ],
   },
+  // ccc-mcp-server: the MCP face this fleet's agent-native goal runs on
+  // ("the ultimate goal is giving agent tool to use, with mcp + mrd" — ZT).
+  // It was registered NOWHERE until 2026-08-10: 0 hits in this file against 9
+  // for ccc-statusd, and the shared .mcp.json carried only ccc-statusd and
+  // shellkit — so no agent on this fleet could see its tools, and none ever had.
+  //
+  // STDIO, deliberately, not `serve`: `ccc-mcp-server serve` defaults to
+  // 127.0.0.1:19223, which is the port the ccc-statusd daemon is ALREADY
+  // listening on (verified with lsof at registration time). An HTTP layer on
+  // the default addr would collide with the live transport the whole fleet
+  // just cut over to. stdio needs no port, no token minting, and no service.
+  //
+  // The server KEY must stay distinct from ccc-statusd's: the binary still
+  // ANNOUNCES itself as ccc-statusd in serverInfo until the D-7 rename, so the
+  // key here is the only thing keeping the two tool namespaces apart.
+  {
+    why: "ccc-mcp-server mcp, stdio — the MCP face (mcp + mrd); registered 2026-08-10, previously absent from every launch",
+    requires: ["exec:${HOME}/.local/bin/ccc-mcp-server"],
+    mcp: [
+      {
+        mcpServers: {
+          "ccc-mcp-server": {
+            type: "stdio",
+            command: "${HOME}/.local/bin/ccc-mcp-server",
+            args: ["mcp"],
+            timeout: 86400000,
+          },
+        },
+      },
+    ],
+  },
   {
     why: "minimax runs at high effort",
     // both spellings: minimax-us says MiniMax-M3, minimax-vol says minimax-m3
