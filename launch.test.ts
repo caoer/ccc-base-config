@@ -58,6 +58,11 @@ interface RunResult {
 const CLAUDE_ENV = (() => {
   const e = { ...process.env };
   delete e.ANTHROPIC_BASE_URL;
+  // ...and it must not inherit a MiniMax session either: model + no base url is
+  // exactly what minimaxEndpointRefusal() refuses, so a minimax shell would
+  // otherwise turn every deployed-selection case into an exit-2.
+  delete e.ANTHROPIC_MODEL;
+  delete e.MINIMAX_API_HOST;
   return e;
 })();
 
@@ -597,9 +602,35 @@ describe("third-party endpoints (ANTHROPIC_BASE_URL)", () => {
       env: { ANTHROPIC_BASE_URL: "https://ark.cn-beijing.volces.com/api/coding", ANTHROPIC_MODEL: "minimax-m3" },
     });
     expect(resolve({ harness: "claude" }, vol).config.effort).toBe("high");
-    // a non-minimax endpoint is untouched
+    // a non-minimax endpoint: arm effort is dropped with the fleet model —
+    // session/settings keep their own (no forced medium)
     const other = fixedWorld({ env: { ANTHROPIC_BASE_URL: "https://zenmux.ai/api/anthropic" } });
-    expect(resolve({ harness: "claude" }, other).config.effort).toBe("medium");
+    expect(resolve({ harness: "claude" }, other).config.effort).toBeUndefined();
+  });
+
+  test("endpoint drops the fleet arm's effort — TUI/settings effortLevel can stick", () => {
+    const plan = resolve({ harness: "claude", role: "worker" }, endpoint({
+      // non-minimax so no layer re-sets effort
+      env: { ANTHROPIC_BASE_URL: "https://api.meta.ai" },
+    }));
+    expect(plan.config.model).toBeUndefined();
+    expect(plan.config.effort).toBeUndefined();
+    expect(plan.trace.join(" ")).toContain("dropping arm effort");
+  });
+
+  test("endpoint honors settings.json model over ANTHROPIC_MODEL (TUI /model save)", () => {
+    const w = fixedWorld({
+      env: { ANTHROPIC_BASE_URL: "https://api.meta.ai", ANTHROPIC_MODEL: "muse-spark-1.2-contributor[1m]" },
+      settingsModel: () => "muse-spark-other[1m]",
+    });
+    const plan = resolve({ harness: "claude", role: "worker" }, w);
+    expect(plan.config.model).toBe("muse-spark-other[1m]");
+    expect(plan.trace.join(" ")).toContain("honoring saved/TUI choice");
+    // explicit CLI --model still wins the pass-through path (we emit nothing;
+    // the caller's flag rides through)
+    const explicit = resolve({ harness: "claude", model: "muse-explicit" }, w);
+    expect(explicit.config.model).toBeUndefined();
+    expect(explicit.warnings.join(" ")).toContain("rides through");
   });
 });
 
@@ -693,6 +724,25 @@ describe("engine: model ids", () => {
     expect(splitEffort("gpt-5.6-sol-max")).toEqual({ model: "gpt-5.6-sol-max" });
     expect(splitEffort("sonnet-high")).toEqual({ model: "sonnet-high" });
     expect(splitEffort(undefined)).toEqual({});
+  });
+
+  test("effort suffixes only peel off models we know — strangers keep their full id", () => {
+    // ends in -high but the base is not an arm/route model → leave alone
+    expect(splitEffort("claude-sonnet-4-high")).toEqual({ model: "claude-sonnet-4-high" });
+    expect(splitEffort("claude-haiku-4-5-max")).toEqual({ model: "claude-haiku-4-5-max" });
+    expect(splitEffort("claude-max")).toEqual({ model: "claude-max" });
+    // a known base (or wildcard route match) still peels
+    expect(splitEffort("claude-opus-4-low")).toEqual({ model: "claude-opus-4", effort: "low" });
+    expect(splitEffort("claude-opus-5-preview-xhigh")).toEqual({
+      model: "claude-opus-5-preview",
+      effort: "xhigh",
+    });
+  });
+
+  test("an unknown model never forces --effort, even when its id ends like an effort", () => {
+    const r = run(["--model", "claude-sonnet-4-high"]);
+    expect(modelOf(r)).toBe("claude-sonnet-4-high[1m]");
+    expect(r.json!.argv).not.toContain("--effort");
   });
 });
 
@@ -980,6 +1030,77 @@ describe("mcp layers — the engine owns all launch config, bash injects nothing
     const cfg = plan.config.mcp[0] as { mcpServers: { MiniMax: { env: Record<string, string> } } };
     expect(cfg.mcpServers.MiniMax.env.MINIMAX_API_KEY).toBe("tok");
     expect(cfg.mcpServers.MiniMax.env.MINIMAX_API_HOST).toBe("https://api.minimax.io");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe("minimax never leaves through the official endpoint", () => {
+  const mm = (env: Record<string, string>) => resolve({ harness: "claude" }, fixedWorld({ env }));
+
+  test("a MiniMax model with no base url is REFUSED, not silently launched", () => {
+    const plan = mm({ ANTHROPIC_MODEL: "MiniMax-M3[1m]" });
+    expect(plan.refusal).toBeDefined();
+    expect(plan.refusal).toContain("DEFAULT official Anthropic endpoint");
+    expect(plan.warnings.join(" ")).toContain("REFUSED:");
+  });
+
+  test("a MiniMax model pointed at api.anthropic.com is REFUSED", () => {
+    for (const url of ["https://api.anthropic.com", "https://api.anthropic.com/v1", "https://anthropic.com"]) {
+      const plan = mm({ ANTHROPIC_MODEL: "minimax-m3", ANTHROPIC_BASE_URL: url });
+      expect(plan.refusal).toContain("official Anthropic host");
+    }
+  });
+
+  test("an explicit --model minimax on a claude account is REFUSED too", () => {
+    const plan = resolve({ harness: "claude", model: "MiniMax-M3" }, fixedWorld({ env: {} }));
+    expect(plan.refusal).toContain("MiniMax");
+  });
+
+  test("a MiniMax endpoint with no explicit auth is REFUSED — default auth would be used", () => {
+    const plan = mm({ ANTHROPIC_MODEL: "MiniMax-M3[1m]", ANTHROPIC_BASE_URL: "https://api.minimax.io/anthropic" });
+    expect(plan.refusal).toContain("default Anthropic auth");
+  });
+
+  test("the real minimax-us profile env passes", () => {
+    const plan = mm({
+      ANTHROPIC_BASE_URL: "https://api.minimax.io/anthropic",
+      ANTHROPIC_AUTH_TOKEN: "tok",
+      MINIMAX_API_KEY: "tok",
+      MINIMAX_API_HOST: "https://api.minimax.io",
+      ANTHROPIC_MODEL: "MiniMax-M3[1m]",
+      API_TIMEOUT_MS: "3000000",
+    });
+    expect(plan.refusal).toBeUndefined();
+    expect(plan.config.effort).toBe("high");
+  });
+
+  test("minimax-vol (volces endpoint) still passes — the rule bans official, not non-minimax.io", () => {
+    const plan = mm({
+      ANTHROPIC_BASE_URL: "https://ark.cn-beijing.volces.com/api/coding",
+      ANTHROPIC_MODEL: "minimax-m3",
+      ANTHROPIC_API_KEY: "k",
+    });
+    expect(plan.refusal).toBeUndefined();
+  });
+
+  test("a claude session merely carrying the MiniMax MCP is untouched", () => {
+    const plan = resolve(
+      { harness: "claude" },
+      fixedWorld({ hasBin: (n) => n === "uvx", env: { MINIMAX_API_KEY: "k", MINIMAX_API_HOST: "https://h.example" } }),
+    );
+    expect(plan.refusal).toBeUndefined();
+    expect(plan.config.mcp.length).toBe(1);
+  });
+
+  test("a MINIMAX_API_HOST pointed at anthropic.com is REFUSED whoever the session model is", () => {
+    const plan = mm({ MINIMAX_API_KEY: "k", MINIMAX_API_HOST: "https://api.anthropic.com" });
+    expect(plan.refusal).toContain("MINIMAX_API_HOST");
+  });
+
+  test("the deployed CLI exits 2 on it — a guard that refuses, not a doc that warns", () => {
+    const r = runWith(process.execPath, ["explain", "--model", "MiniMax-M3"]);
+    expect(r.exitCode).toBe(2);
+    expect(r.stdout + r.stderr).toContain("REFUSED");
   });
 });
 

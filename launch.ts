@@ -85,6 +85,12 @@ export type World = {
   pick: (candidates: string[]) => string;
   /** per-user pool members from pools.local.json — merged with rules.ts pools */
   localPools: Record<string, string[]>;
+  /**
+   * model the user saved via the TUI (/model) into $CLAUDE_CONFIG_DIR/settings.json.
+   * Endpoint profiles honor this over ANTHROPIC_MODEL so a picker choice sticks
+   * across restarts (CLI --model beats env).
+   */
+  settingsModel: () => string | undefined;
 };
 
 // ─── Config: the decision, before it becomes flags ──────────────────────────
@@ -130,6 +136,21 @@ const fail: (msg: string) => never = (msg) => {
 // THE WORLD — the only code that touches env, disk, or PATH.
 // ═══════════════════════════════════════════════════════════════════════════
 
+/** Read settings.json `model` from a Claude config dir. Empty/missing → undefined. */
+export function readSettingsModel(configDir: string | undefined): string | undefined {
+  if (!configDir || !configDir.trim()) return undefined;
+  const path = join(configDir, "settings.json");
+  if (!existsSync(path)) return undefined;
+  try {
+    const raw = JSON.parse(readFileSync(path, "utf8")) as { model?: unknown };
+    if (typeof raw.model !== "string") return undefined;
+    const m = raw.model.trim();
+    return m === "" ? undefined : m;
+  } catch {
+    return undefined;
+  }
+}
+
 export function realWorld(env = process.env, localPools: Record<string, string[]> = {}): World {
   return {
     env,
@@ -151,6 +172,7 @@ export function realWorld(env = process.env, localPools: Record<string, string[]
     },
     pick: (c) => c[Math.floor(Math.random() * c.length)],
     localPools,
+    settingsModel: () => readSettingsModel(env.CLAUDE_CONFIG_DIR),
   };
 }
 
@@ -164,6 +186,7 @@ export function fixedWorld(over: Partial<World> = {}): World {
     hasBin: () => false,
     pick: (c) => c[0],
     localPools: {},
+    settingsModel: () => undefined,
     ...over,
   };
 }
@@ -391,16 +414,39 @@ export function siftArgv(raw: string[]): { model?: string; resume: boolean; argv
 }
 
 /**
+ * True when `model` is one rules.ts knows: an arm's id, or a route's model
+ * pattern (exact or trailing-*). Used so an effort-looking suffix is only
+ * peeled off ids we can actually route — never off a stranger.
+ */
+function isKnownModelBase(model: string): boolean {
+  const bare = bareId(model);
+  for (const a of Object.values(arms)) {
+    if (bareId(a.model) === bare) return true;
+  }
+  for (const r of routes) {
+    if (!r.when?.model) continue;
+    if (matchModel(list(r.when.model), bare)) return true;
+  }
+  return false;
+}
+
+/**
  * claude-opus-4-8-xhigh → { model: "claude-opus-4-8", effort: "xhigh" }
  *
- * Only claude ids carry this convention. An endpoint id is opaque — splitting
- * `gpt-5.6-sol-max` would invent a model that does not exist.
+ * Only claude ids carry this convention, and only when the base id is one we
+ * know (an arm or a route model pattern). An endpoint id is opaque —
+ * splitting `gpt-5.6-sol-max` would invent a model that does not exist. An
+ * unknown claude id that merely ends in `-high`/`-max`/… is left whole so we
+ * do not invent an `--effort` for a stranger (the session keeps its own).
  */
 export function splitEffort(model?: string): { model?: string; effort?: string } {
   if (!model) return {};
   if (!isClaude(model)) return { model };
   for (const e of EFFORTS) {
-    if (model.endsWith(`-${e}`)) return { model: model.slice(0, -(e.length + 1)), effort: e };
+    if (!model.endsWith(`-${e}`)) continue;
+    const base = model.slice(0, -(e.length + 1));
+    if (!isKnownModelBase(base)) return { model };
+    return { model: base, effort: e };
   }
   return { model };
 }
@@ -564,6 +610,30 @@ export function resolve(ctx: Ctx, world: World): Plan {
       );
     }
     config.model = undefined;
+    // The arm's effort belongs to the fleet model we just dropped. Forcing it
+    // onto an endpoint model the user (or ANTHROPIC_MODEL) picked makes the
+    // TUI/settings effortLevel look like it "won't save". Layers (minimax)
+    // may still set effort after this. An explicit effort suffix still wins
+    // later via explicitEffort.
+    if (config.effort !== undefined && !explicitEffort) {
+      trace.push(
+        `${ENDPOINT_SERVES_ITS_OWN_MODEL}: dropping arm effort ${config.effort} — ` +
+          `endpoint model is not ours; session/settings keep their own effort`,
+      );
+      config.effort = undefined;
+    }
+    // TUI /model writes settings.json `model`. Without an explicit --model,
+    // emit that saved id so it beats ANTHROPIC_MODEL on the next launch
+    // (otherwise env pins the default forever and the picker looks broken).
+    if (asked === undefined) {
+      const saved = world.settingsModel();
+      if (saved) {
+        config.model = withOneM(saved);
+        trace.push(
+          `settings.json model ${saved}: honoring saved/TUI choice over ANTHROPIC_MODEL`,
+        );
+      }
+    }
   }
 
   // 3. layers — every match applies, in order
@@ -596,9 +666,86 @@ export function resolve(ctx: Ctx, world: World): Plan {
     warnings.push(`role '${c.role}' matches no route in rules.ts — launching with the roleless prompt`);
   }
 
+  refusal ??= minimaxEndpointRefusal(asked, world);
+  if (refusal && !warnings.some((w) => w.startsWith("REFUSED: "))) {
+    warnings.push(`REFUSED: ${refusal}`);
+  }
+
   warnings.push(...validate(config));
 
   return { ctx: c, arm, candidates, config, trace, warnings, refusal };
+}
+
+/** hosts served by Anthropic itself — the harness default when no base url is set */
+const OFFICIAL_ANTHROPIC_HOST = /(^|\.)anthropic\.com$/i;
+
+function hostOf(url: string): string | undefined {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return undefined;
+  }
+}
+
+/** true when this url is unset/blank (harness default) or an Anthropic-owned host */
+function isOfficialAnthropic(url: string | undefined): boolean {
+  const u = (url ?? "").trim();
+  if (u === "") return true;
+  const host = hostOf(u);
+  return host === undefined ? false : OFFICIAL_ANTHROPIC_HOST.test(host);
+}
+
+const namesMinimax = (s: string | undefined) => /minimax/i.test(s ?? "");
+
+/**
+ * The MiniMax endpoint rule, enforced rather than documented: a MiniMax session
+ * must never leave through the DEFAULT official endpoint or the account's
+ * default auth. Both failure modes are silent — the official API answers a
+ * MiniMax model id with an error, or worse, an OAuth-authenticated claude
+ * session runs while everyone believes it is MiniMax. So we refuse the launch.
+ *
+ * Scope is the SESSION endpoint only. A claude session that merely carries the
+ * MiniMax coding-plan MCP (MINIMAX_API_KEY set, no MiniMax model) is untouched;
+ * that server has its own MINIMAX_API_HOST, checked separately below.
+ *
+ * The correct setup is a profile .env like $UCC_HOME/profiles/minimax-us/.env:
+ *   ANTHROPIC_BASE_URL=https://api.minimax.io/anthropic
+ *   MINIMAX_API_HOST=https://api.minimax.io
+ *   ANTHROPIC_AUTH_TOKEN=…  MINIMAX_API_KEY=…  (sops: svc/common minimax_api_key)
+ */
+export function minimaxEndpointRefusal(asked: string | undefined, world: World): string | undefined {
+  const env = world.env;
+  const fix =
+    `Fix: launch from a MiniMax profile whose .env sets ANTHROPIC_BASE_URL=https://api.minimax.io/anthropic, ` +
+    `MINIMAX_API_HOST=https://api.minimax.io and its own ANTHROPIC_AUTH_TOKEN ` +
+    `(credential: sops secrets/svc/common.sops.yaml key minimax_api_key) — e.g. ucc-minimax-us.`;
+
+  const wants = namesMinimax(env.ANTHROPIC_MODEL) || namesMinimax(asked);
+  if (wants) {
+    const url = env.ANTHROPIC_BASE_URL;
+    const named = namesMinimax(asked) ? `--model ${asked}` : `ANTHROPIC_MODEL=${env.ANTHROPIC_MODEL}`;
+    if (isOfficialAnthropic(url)) {
+      return (
+        `${named} asks for MiniMax, but ANTHROPIC_BASE_URL is ` +
+        `${(url ?? "").trim() === "" ? "unset — the harness would use the DEFAULT official Anthropic endpoint" : `'${url}', an official Anthropic host`}. ` +
+        `This fleet never reaches MiniMax through the official endpoint. ${fix}`
+      );
+    }
+    const auth = (env.ANTHROPIC_AUTH_TOKEN ?? env.ANTHROPIC_API_KEY ?? "").trim();
+    if (auth === "") {
+      return (
+        `${named} asks for MiniMax at ${url}, but neither ANTHROPIC_AUTH_TOKEN nor ANTHROPIC_API_KEY is set — ` +
+        `the launch would fall back to this account's default Anthropic auth. ${fix}`
+      );
+    }
+  }
+
+  // The MiniMax MCP server's own host, whoever the session model is.
+  const mcpHost = (env.MINIMAX_API_HOST ?? "").trim();
+  if (mcpHost !== "" && isOfficialAnthropic(mcpHost)) {
+    return `MINIMAX_API_HOST='${mcpHost}' points at an official Anthropic host — MiniMax is not served there. ${fix}`;
+  }
+  return undefined;
 }
 
 /** every role any route mentions — the set rules.ts actually knows */
