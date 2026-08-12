@@ -295,33 +295,15 @@ export const layers: Layer[] = [
     requires: ["file:~/.local/share/ucc/shared/.mcp.json"],
     mcp: ["~/.local/share/ucc/shared/.mcp.json"],
   },
-  // U1.0 transport unification: the two ccc-statusd layers below are mutually
-  // exclusive on one probe. Until the DRAIN cutover exports the daemon-minted
-  // CCC_STATUSD_MCP_TOKEN (ccc-statusd docs/j2-transport-cutover-runbook.md),
-  // every launch keeps the stdio sidecar; the export is the cutover switch,
-  // and unexporting it is the rollback.
+  // U1.0 transport unification: ONE ccc-statusd MCP layer. The stdio sidecar
+  // that used to sit here (`ccc-statusd mcp`) was deleted from the binary on
+  // 2026-08-12, so the `!env:CCC_STATUSD_MCP_TOKEN` fallback arm is gone with
+  // it — an unexported token now yields NO ccc-statusd MCP server rather than
+  // a registration pointing at a subcommand that does not exist. That also
+  // retires the old rollback (unexport the token): rolling back the transport
+  // now means rolling back the binary.
   {
-    why: "ccc-statusd mcp, stdio sidecar — retired at the U1.0 DRAIN cutover; inert once the daemon-served token is exported",
-    requires: [
-      "exec:${HOME}/.local/bin/ccc-statusd",
-      "!env:CCC_STATUSD_MCP_TOKEN",
-      "env:SUPERZ_BOT_TOKEN | file:${CCC_TELEGRAM_SECRETS_FILE} | file:${CCC_TELEGRAM_DATA_DIR:-~/.local/share/ucc/data/ccc-telegram}/telegram.yaml",
-    ],
-    mcp: [
-      {
-        mcpServers: {
-          "ccc-statusd": {
-            type: "stdio",
-            command: "${HOME}/.local/bin/ccc-statusd",
-            args: ["mcp"],
-            timeout: 86400000,
-          },
-        },
-      },
-    ],
-  },
-  {
-    why: "ccc-statusd mcp, daemon-served streamable HTTP (U1.0) — live once the DRAIN cutover exports the daemon-minted token",
+    why: "ccc-statusd mcp, daemon-served streamable HTTP (U1.0) — the only transport; needs the daemon-minted token exported",
     requires: [
       "exec:${HOME}/.local/bin/ccc-statusd",
       "env:CCC_STATUSD_MCP_TOKEN",
