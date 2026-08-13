@@ -160,7 +160,7 @@ describe("deployed selection (process contract, real repo)", () => {
 
   test("an endpoint profile carries role prompts too", () => {
     const r = run(["--profile", "grok", "--role", "worker"]);
-    expect(modelOf(r)).toBe("grok-4.5[1m]");
+    expect(modelOf(r)).toBe("grok-4.6[1m]");
     expect(promptOf(r)).toBe("fable-5-calibration.worker.md");
   });
 
@@ -210,7 +210,7 @@ describe("deployed selection (process contract, real repo)", () => {
 
   test("endpoint profiles keep their own ids and have no claude-opus-5", () => {
     expect(modelOf(run(["--profile", "codex"]))).toBe("gpt-5.6-sol[1m]");
-    expect(modelOf(run(["--profile", "grok"]))).toBe("grok-4.5[1m]");
+    expect(modelOf(run(["--profile", "grok"]))).toBe("grok-4.6[1m]");
     expect(modelOf(run(["--profile", "kimi-k3-moonshot"]))).toBe("k3[1m]");
   });
 
@@ -250,7 +250,7 @@ describe("deployed selection (process contract, real repo)", () => {
 
   test("an endpoint profile applies to every role", () => {
     for (const role of ["advisor", "leader", "worker"]) {
-      expect(modelOf(run(["--profile", "grok", "--role", role]))).toBe("grok-4.5[1m]");
+      expect(modelOf(run(["--profile", "grok", "--role", role]))).toBe("grok-4.6[1m]");
     }
   });
 
@@ -571,7 +571,7 @@ describe("third-party endpoints (ANTHROPIC_BASE_URL)", () => {
   test("a pinned arm keeps its id — pinning says we know this endpoint", () => {
     for (const [profile, model] of [
       ["codex", "gpt-5.6-sol[1m]"],
-      ["grok", "grok-4.5[1m]"],
+      ["grok", "grok-4.6[1m]"],
       ["kimi-k3-moonshot", "k3[1m]"],
     ] as const) {
       expect(resolve({ harness: "claude", profile, role: "worker" }, endpoint()).config.model).toBe(model);
@@ -988,7 +988,7 @@ describe("mcp layers — the engine owns all launch config, bash injects nothing
 
   test("mcp configs accumulate and never displace the arm's prompt", () => {
     const w = fixedWorld({
-      env: { HOME: "/home/zt", SUPERZ_BOT_TOKEN: "t" },
+      env: { HOME: "/home/zt", SUPERZ_BOT_TOKEN: "t", CCC_STATUSD_MCP_TOKEN: "t" },
       hasFile: () => true,
       hasExec: () => true,
     });

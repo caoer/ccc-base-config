@@ -163,10 +163,10 @@ export const arms: Record<string, Arm> = {
   "k3:leader": { model: "k3[1m]", prompt: "prompts/fable-5-calibration.leader.md", effort: "xhigh", pin: true },
   "k3:worker": { model: "k3[1m]", prompt: "prompts/fable-5-calibration.worker.md", effort: "xhigh", pin: true },
 
-  "grok-4.5": { model: "grok-4.5[1m]", prompt: "prompts/fable-5-calibration.md", effort: "xhigh", pin: true },
-  "grok-4.5:advisor": { model: "grok-4.5[1m]", prompt: "prompts/fable-5-calibration.advisor.md", effort: "xhigh", pin: true },
-  "grok-4.5:leader": { model: "grok-4.5[1m]", prompt: "prompts/fable-5-calibration.leader.md", effort: "xhigh", pin: true },
-  "grok-4.5:worker": { model: "grok-4.5[1m]", prompt: "prompts/fable-5-calibration.worker.md", effort: "xhigh", pin: true },
+  "grok-4.6": { model: "grok-4.6[1m]", prompt: "prompts/fable-5-calibration.md", effort: "xhigh", pin: true },
+  "grok-4.6:advisor": { model: "grok-4.6[1m]", prompt: "prompts/fable-5-calibration.advisor.md", effort: "xhigh", pin: true },
+  "grok-4.6:leader": { model: "grok-4.6[1m]", prompt: "prompts/fable-5-calibration.leader.md", effort: "xhigh", pin: true },
+  "grok-4.6:worker": { model: "grok-4.6[1m]", prompt: "prompts/fable-5-calibration.worker.md", effort: "xhigh", pin: true },
 
   "deepseek-v4-flash:cloud": { model: "deepseek-v4-flash:cloud[1m]", prompt: "prompts/fable-5-calibration.md", effort: "max", pin: true },
   "deepseek-v4-flash:cloud:advisor": { model: "deepseek-v4-flash:cloud[1m]", prompt: "prompts/fable-5-calibration.advisor.md", effort: "max", pin: true },
@@ -235,10 +235,10 @@ export const routes: Route[] = [
   { when: { profile: "kimi-k3-moonshot", role: "worker" }, use: "k3:worker" },
   { when: { profile: "kimi-k3-moonshot" }, use: "k3", why: "moonshot endpoint" },
 
-  { when: { profile: "grok", role: "advisor" }, use: "grok-4.5:advisor" },
-  { when: { profile: "grok", role: "leader" }, use: "grok-4.5:leader" },
-  { when: { profile: "grok", role: "worker" }, use: "grok-4.5:worker" },
-  { when: { profile: "grok" }, use: "grok-4.5", why: "grok endpoint" },
+  { when: { profile: "grok", role: "advisor" }, use: "grok-4.6:advisor" },
+  { when: { profile: "grok", role: "leader" }, use: "grok-4.6:leader" },
+  { when: { profile: "grok", role: "worker" }, use: "grok-4.6:worker" },
+  { when: { profile: "grok" }, use: "grok-4.6", why: "grok endpoint" },
 
   { when: { profile: "deepseek-ollama", role: "advisor" }, use: "deepseek-v4-flash:cloud:advisor" },
   { when: { profile: "deepseek-ollama", role: "leader" }, use: "deepseek-v4-flash:cloud:leader" },
