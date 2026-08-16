@@ -109,7 +109,7 @@ describe("deployed selection (process contract, real repo)", () => {
     const r = run([]);
     expect(r.exitCode).toBe(0);
     expect(modelOf(r)).toBe("claude-opus-5[1m]");
-    expect(promptOf(r)).toBe("opus-5-stance.md");
+    expect(promptOf(r)).toBe("opus-5-ownership.md");
     expect(r.json!.model_matched).toBe(true);
   });
 
@@ -133,7 +133,7 @@ describe("deployed selection (process contract, real repo)", () => {
     for (const role of ["leader", "worker"]) {
       const r = run(["--role", role]);
       expect(modelOf(r)).toBe("claude-opus-5[1m]");
-      expect(promptOf(r)).toBe(`opus-5-stance.${role}.md`);
+      expect(promptOf(r)).toBe(`opus-5-ownership.${role}.md`);
     }
   });
 
@@ -205,7 +205,7 @@ describe("deployed selection (process contract, real repo)", () => {
   test("an explicit model beats the role's model but keeps the role's prompt", () => {
     const r = run(["--role", "advisor", "--model", "claude-opus-5"]);
     expect(modelOf(r)).toBe("claude-opus-5[1m]");
-    expect(promptOf(r)).toBe("opus-5-stance.advisor.md");
+    expect(promptOf(r)).toBe("opus-5-ownership.advisor.md");
   });
 
   test("endpoint profiles keep their own ids and have no claude-opus-5", () => {
@@ -323,7 +323,7 @@ describe("deployed selection (process contract, real repo)", () => {
   test("a role no route knows lands on the roleless prompt, and says so", () => {
     const r = run(["--role", "ghost"]);
     expect(r.exitCode).toBe(0);
-    expect(promptOf(r)).toBe("opus-5-stance.md");
+    expect(promptOf(r)).toBe("opus-5-ownership.md");
     expect(r.json!.warnings.join(" ")).toContain("matches no route");
   });
 
@@ -363,7 +363,7 @@ describe("forwarded argv (the wrapper passes its whole command line)", () => {
     const viaArgv = withArgv(["--model", "claude-opus-5"]);
     expect(modelOf(viaArgv)).toBe("claude-opus-5[1m]");
     expect(viaArgv.json!.model_matched).toBe(true);
-    expect(promptOf(viaArgv)).toBe("opus-5-stance.md");
+    expect(promptOf(viaArgv)).toBe("opus-5-ownership.md");
   });
 
   test("--model= form works and the last --model wins", () => {
@@ -377,7 +377,7 @@ describe("forwarded argv (the wrapper passes its whole command line)", () => {
     expect(r.json!.argv).not.toContain("--model");
     expect(r.json!.argv).not.toContain("--effort");
     expect(r.json!.model_matched).toBe(false);
-    expect(promptOf(r)).toBe("opus-5-stance.md");
+    expect(promptOf(r)).toBe("opus-5-ownership.md");
     expect(r.json!.trace.join(" ")).toContain("resume/continue");
   });
 
@@ -391,7 +391,7 @@ describe("forwarded argv (the wrapper passes its whole command line)", () => {
     // what a ccc-tmux spawn hands the wrapper: everything already rendered
     const r = withArgv([
       "--session-id", "0f0f",
-      "--system-prompt-file", "/x/prompts/opus-5-stance.worker.md",
+      "--system-prompt-file", "/x/prompts/opus-5-ownership.worker.md",
       "--effort", "medium",
       "--mcp-config=/x/shared/.mcp.json",
       "--disallowedTools=TaskOutput",
@@ -551,7 +551,7 @@ describe("third-party endpoints (ANTHROPIC_BASE_URL)", () => {
     expect(plan.config.model).toBeUndefined();
     expect(plan.trace.join(" ")).toContain("serves its own");
     // the prompt is still ours
-    expect(plan.config.systemPromptFile).toBe("prompts/opus-5-stance.worker.md");
+    expect(plan.config.systemPromptFile).toBe("prompts/opus-5-ownership.worker.md");
   });
 
   test("an explicitly requested model is dropped too, so the caller's own flag stands", () => {
@@ -848,7 +848,7 @@ describe("engine: precedence and emit", () => {
   test("defaults, then arm, then layers", () => {
     const plan = resolve({ harness: "claude", role: "worker" }, w);
     expect(plan.arm).toBe("opus-5:worker");
-    expect(plan.config.systemPromptFile).toBe("prompts/opus-5-stance.worker.md");
+    expect(plan.config.systemPromptFile).toBe("prompts/opus-5-ownership.worker.md");
     expect(plan.config.effort).toBe("medium");
     expect(plan.config.append).toEqual([]);
   });
@@ -902,13 +902,13 @@ describe("engine: precedence and emit", () => {
   });
 
   test("--system-prompt from the caller suppresses ours, in either spelling", () => {
-    const plan = planWith({ systemPromptFile: "prompts/opus-5-stance.md" }, { argv: ["--system-prompt", "hi"] });
+    const plan = planWith({ systemPromptFile: "prompts/opus-5-ownership.md" }, { argv: ["--system-prompt", "hi"] });
     expect(emitClaude(plan, w)).not.toContain("--system-prompt-file");
   });
 
   test("exclude-dynamic-sections is dropped with a warning when a prompt replaces the base", () => {
     const conflict = planWith({
-      systemPromptFile: "prompts/opus-5-stance.md",
+      systemPromptFile: "prompts/opus-5-ownership.md",
       excludeDynamicSections: true,
     }).config;
     expect(validate(conflict).join(" ")).toContain("does nothing");
@@ -982,7 +982,7 @@ describe("mcp layers — the engine owns all launch config, bash injects nothing
   test("a bare world gets no mcp: every layer's requires is unmet, and says so", () => {
     const plan = resolve({ harness: "claude", role: "worker" }, fixedWorld());
     expect(plan.config.mcp).toEqual([]);
-    expect(plan.config.systemPromptFile).toBe("prompts/opus-5-stance.worker.md");
+    expect(plan.config.systemPromptFile).toBe("prompts/opus-5-ownership.worker.md");
     expect(plan.trace.join("\n")).toContain("skipped — needs");
   });
 
@@ -993,7 +993,7 @@ describe("mcp layers — the engine owns all launch config, bash injects nothing
       hasExec: () => true,
     });
     const worker = resolve({ harness: "claude", role: "worker" }, w);
-    expect(worker.config.systemPromptFile).toBe("prompts/opus-5-stance.worker.md");
+    expect(worker.config.systemPromptFile).toBe("prompts/opus-5-ownership.worker.md");
     expect(worker.config.mcp.length).toBe(2);
   });
 
@@ -1190,7 +1190,7 @@ describe("matrix", () => {
     expect(golden).toContain("claude-opus-4-8[200k]");
     expect(golden).toContain("sonnet");
     // every role prompt must be visible in the table
-    expect(golden).toContain("opus-5-stance.worker.md");
+    expect(golden).toContain("opus-5-ownership.worker.md");
     expect(golden).toContain("fable-5-calibration.advisor.md");
   });
 

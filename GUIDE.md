@@ -46,9 +46,9 @@ nothing of their own.
 | Launch | Model | Prompt |
 |---|---|---|
 | advisor | `claude-fable-5[1m]` | `fable-5-calibration.advisor.md` |
-| leader | `claude-opus-5[1m]` | `opus-5-stance.leader.md` |
-| worker | `claude-opus-5[1m]` | `opus-5-stance.worker.md` |
-| no role | `claude-opus-5[1m]` | `opus-5-stance.md` |
+| leader | `claude-opus-5[1m]` | `opus-5-ownership.leader.md` |
+| worker | `claude-opus-5[1m]` | `opus-5-ownership.worker.md` |
+| no role | `claude-opus-5[1m]` | `opus-5-ownership.md` |
 | `codex` / `grok` / `kimi-k3-moonshot` | their own pinned id | the fable prompts |
 | the other 27 endpoint profiles | none — `ANTHROPIC_MODEL` applies | the opus-5 prompts |
 
