@@ -138,16 +138,19 @@ export const arms: Record<string, Arm> = {
   // ── the fleet default ──
   // 2026-08-16: cand3-v3 ownership + absence-claim gate.
   // rollback: point these four at prompts/opus-5-stance*.md
-  "opus-5": { model: "claude-opus-5[1m]", prompt: "prompts/opus-5-ownership.md", effort: "medium" },
-  "opus-5:advisor": { model: "claude-opus-5[1m]", prompt: "prompts/opus-5-ownership.advisor.md", effort: "medium" },
-  "opus-5:leader": { model: "claude-opus-5[1m]", prompt: "prompts/opus-5-ownership.leader.md", effort: "medium" },
-  "opus-5:worker": { model: "claude-opus-5[1m]", prompt: "prompts/opus-5-ownership.worker.md", effort: "medium" },
+  "opus-5": { model: "claude-opus-5[1m]", prompt: "prompts/opus-5-ownership.md", effort: "xhigh" },
+  "opus-5:advisor": { model: "claude-opus-5[1m]", prompt: "prompts/opus-5-ownership.advisor.md", effort: "xhigh" },
+  "opus-5:leader": { model: "claude-opus-5[1m]", prompt: "prompts/opus-5-ownership.leader.md", effort: "xhigh" },
+  "opus-5:worker": { model: "claude-opus-5[1m]", prompt: "prompts/opus-5-ownership.worker.md", effort: "xhigh" },
 
-  // ── advisors stay here: the armed, battle-tested arm ──
-  fable: { model: "claude-fable-5[1m]", prompt: "prompts/fable-5-calibration.md", effort: "xhigh" },
-  "fable:advisor": { model: "claude-fable-5[1m]", prompt: "prompts/fable-5-calibration.advisor.md", effort: "xhigh" },
-  "fable:leader": { model: "claude-fable-5[1m]", prompt: "prompts/fable-5-calibration.leader.md", effort: "xhigh" },
-  "fable:worker": { model: "claude-fable-5[1m]", prompt: "prompts/fable-5-calibration.worker.md", effort: "xhigh" },
+  // ── advisors stay here ──
+  // 2026-08-17: integrated ownership set — fable edition of opus-5 ownership,
+  // guide tunings woven into Scope/Communication (no calibration annex).
+  // rollback: point these four (and the endpoint arms below) at prompts/fable-5-calibration*.md
+  fable: { model: "claude-fable-5[1m]", prompt: "prompts/fable-5-ownership.md", effort: "xhigh" },
+  "fable:advisor": { model: "claude-fable-5[1m]", prompt: "prompts/fable-5-ownership.advisor.md", effort: "xhigh" },
+  "fable:leader": { model: "claude-fable-5[1m]", prompt: "prompts/fable-5-ownership.leader.md", effort: "xhigh" },
+  "fable:worker": { model: "claude-fable-5[1m]", prompt: "prompts/fable-5-ownership.worker.md", effort: "xhigh" },
 
   // ── reached only by an explicit --model ──
   "opus-4-8": { model: "claude-opus-4-8[1m]", prompt: "prompts/opus-4-operator.md", effort: "xhigh" },
@@ -155,25 +158,25 @@ export const arms: Record<string, Arm> = {
   // ── endpoints that speak their own model ids, and have no claude-opus-5.
   //    They pin: an explicitly requested claude id would be rejected upstream.
   //    They run the fable prompts — same files, different model. ──
-  "gpt-5.6-sol": { model: "gpt-5.6-sol[1m]", prompt: "prompts/fable-5-calibration.md", effort: "xhigh", pin: true },
-  "gpt-5.6-sol:advisor": { model: "gpt-5.6-sol[1m]", prompt: "prompts/fable-5-calibration.advisor.md", effort: "xhigh", pin: true },
-  "gpt-5.6-sol:leader": { model: "gpt-5.6-sol[1m]", prompt: "prompts/fable-5-calibration.leader.md", effort: "xhigh", pin: true },
-  "gpt-5.6-sol:worker": { model: "gpt-5.6-sol[1m]", prompt: "prompts/fable-5-calibration.worker.md", effort: "xhigh", pin: true },
+  "gpt-5.6-sol": { model: "gpt-5.6-sol[1m]", prompt: "prompts/fable-5-ownership.md", effort: "xhigh", pin: true },
+  "gpt-5.6-sol:advisor": { model: "gpt-5.6-sol[1m]", prompt: "prompts/fable-5-ownership.advisor.md", effort: "xhigh", pin: true },
+  "gpt-5.6-sol:leader": { model: "gpt-5.6-sol[1m]", prompt: "prompts/fable-5-ownership.leader.md", effort: "xhigh", pin: true },
+  "gpt-5.6-sol:worker": { model: "gpt-5.6-sol[1m]", prompt: "prompts/fable-5-ownership.worker.md", effort: "xhigh", pin: true },
 
-  k3: { model: "k3[1m]", prompt: "prompts/fable-5-calibration.md", effort: "xhigh", pin: true },
-  "k3:advisor": { model: "k3[1m]", prompt: "prompts/fable-5-calibration.advisor.md", effort: "xhigh", pin: true },
-  "k3:leader": { model: "k3[1m]", prompt: "prompts/fable-5-calibration.leader.md", effort: "xhigh", pin: true },
-  "k3:worker": { model: "k3[1m]", prompt: "prompts/fable-5-calibration.worker.md", effort: "xhigh", pin: true },
+  k3: { model: "k3[1m]", prompt: "prompts/fable-5-ownership.md", effort: "xhigh", pin: true },
+  "k3:advisor": { model: "k3[1m]", prompt: "prompts/fable-5-ownership.advisor.md", effort: "xhigh", pin: true },
+  "k3:leader": { model: "k3[1m]", prompt: "prompts/fable-5-ownership.leader.md", effort: "xhigh", pin: true },
+  "k3:worker": { model: "k3[1m]", prompt: "prompts/fable-5-ownership.worker.md", effort: "xhigh", pin: true },
 
-  "grok-4.6": { model: "grok-4.6[1m]", prompt: "prompts/fable-5-calibration.md", effort: "xhigh", pin: true },
-  "grok-4.6:advisor": { model: "grok-4.6[1m]", prompt: "prompts/fable-5-calibration.advisor.md", effort: "xhigh", pin: true },
-  "grok-4.6:leader": { model: "grok-4.6[1m]", prompt: "prompts/fable-5-calibration.leader.md", effort: "xhigh", pin: true },
-  "grok-4.6:worker": { model: "grok-4.6[1m]", prompt: "prompts/fable-5-calibration.worker.md", effort: "xhigh", pin: true },
+  "grok-4.6": { model: "grok-4.6[1m]", prompt: "prompts/fable-5-ownership.md", effort: "xhigh", pin: true },
+  "grok-4.6:advisor": { model: "grok-4.6[1m]", prompt: "prompts/fable-5-ownership.advisor.md", effort: "xhigh", pin: true },
+  "grok-4.6:leader": { model: "grok-4.6[1m]", prompt: "prompts/fable-5-ownership.leader.md", effort: "xhigh", pin: true },
+  "grok-4.6:worker": { model: "grok-4.6[1m]", prompt: "prompts/fable-5-ownership.worker.md", effort: "xhigh", pin: true },
 
-  "deepseek-v4-flash:cloud": { model: "deepseek-v4-flash:cloud[1m]", prompt: "prompts/fable-5-calibration.md", effort: "max", pin: true },
-  "deepseek-v4-flash:cloud:advisor": { model: "deepseek-v4-flash:cloud[1m]", prompt: "prompts/fable-5-calibration.advisor.md", effort: "max", pin: true },
-  "deepseek-v4-flash:cloud:leader": { model: "deepseek-v4-flash:cloud[1m]", prompt: "prompts/fable-5-calibration.leader.md", effort: "max", pin: true },
-  "deepseek-v4-flash:cloud:worker": { model: "deepseek-v4-flash:cloud[1m]", prompt: "prompts/fable-5-calibration.worker.md", effort: "max", pin: true },
+  "deepseek-v4-flash:cloud": { model: "deepseek-v4-flash:cloud[1m]", prompt: "prompts/fable-5-ownership.md", effort: "max", pin: true },
+  "deepseek-v4-flash:cloud:advisor": { model: "deepseek-v4-flash:cloud[1m]", prompt: "prompts/fable-5-ownership.advisor.md", effort: "max", pin: true },
+  "deepseek-v4-flash:cloud:leader": { model: "deepseek-v4-flash:cloud[1m]", prompt: "prompts/fable-5-ownership.leader.md", effort: "max", pin: true },
+  "deepseek-v4-flash:cloud:worker": { model: "deepseek-v4-flash:cloud[1m]", prompt: "prompts/fable-5-ownership.worker.md", effort: "max", pin: true },
 };
 
 // ─── third-party endpoints ──────────────────────────────────────────────────
@@ -290,7 +293,7 @@ export const layers: Layer[] = [
   {
     why: "workers/leaders launch without AskUserQuestion",
     when: { role: ["worker", "leader"] },
-    disallowedTools: ["AskUserQuestion"],
+    disallowedTools: [""],
   },
   {
     why: "shared mcp servers (tolaria, shellkit)",
