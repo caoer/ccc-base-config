@@ -857,6 +857,15 @@ describe("engine: precedence and emit", () => {
     expect(resolve({ harness: "claude", role: "worker", model: "claude-opus-5-low" }, w).config.effort).toBe("low");
   });
 
+  // The layer this pins was disarmed to [""] for 8 days with no test to say so.
+  // Leaders lose the tool; workers (interview seats) and advisors (the human
+  // surface) keep it.
+  test("only leaders launch without AskUserQuestion", () => {
+    expect(resolve({ harness: "claude", role: "leader" }, w).config.disallowedTools).toContain("AskUserQuestion");
+    for (const role of ["worker", "advisor"] as const)
+      expect(resolve({ harness: "claude", role }, w).config.disallowedTools).not.toContain("AskUserQuestion");
+  });
+
   test("the first matching route wins and stops the search", () => {
     expect(resolve({ harness: "claude", profile: "codex", role: "worker" }, w).arm).toBe("gpt-5.6-sol:worker");
   });

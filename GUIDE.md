@@ -45,7 +45,7 @@ nothing of their own.
 
 | Launch | Model | Prompt |
 |---|---|---|
-| advisor | `claude-fable-5[1m]` | `fable-5-calibration.advisor.md` |
+| advisor | `claude-fable-5[1m]` | `fable-5-ownership.advisor.md` |
 | leader | `claude-opus-5[1m]` | `opus-5-ownership.leader.md` |
 | worker | `claude-opus-5[1m]` | `opus-5-ownership.worker.md` |
 | no role | `claude-opus-5[1m]` | `opus-5-ownership.md` |

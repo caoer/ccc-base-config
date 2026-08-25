@@ -291,9 +291,13 @@ export const routes: Route[] = [
 
 export const layers: Layer[] = [
   {
-    why: "workers/leaders launch without AskUserQuestion",
-    when: { role: ["worker", "leader"] },
-    disallowedTools: [""],
+    // Leaders only. A leader that cannot open the dialog must act on the
+    // authorization it holds or escalate in-band to its advisor. Workers keep
+    // the tool — interview-shaped workers talk to the user through it — and so
+    // do advisors, who own the human surface.
+    why: "leaders launch without AskUserQuestion",
+    when: { role: ["leader"] },
+    disallowedTools: ["AskUserQuestion"],
   },
   {
     why: "shared mcp servers (tolaria, shellkit)",
