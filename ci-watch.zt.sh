@@ -18,7 +18,15 @@
 # ignored.
 #
 # Exit code IS the verdict: 0 green, 1 red, 2 could not resolve a pipeline,
-# 3 still running when the timeout expired (states printed, nothing killed).
+# 3 still running when the timeout expired (states printed, nothing killed),
+# 4 the pipeline was KILLED — cancelled or superseded by a newer commit.
+#
+# 4 exists because "did not succeed" and "failed" are different facts, and RED is
+# what a caller ACTS on. Woodpecker kills an in-flight pipeline when a newer commit
+# supersedes it, so an ordinary force-push used to read as RED — on the superseded
+# sha, which is exactly the one nobody revisits, so the false RED went unexamined
+# and could later be quoted as proof a branch was broken. 4 is NOT green: a
+# pipeline killed for any other reason is still something you must look at.
 #
 # The verdict is ALSO the LAST LINE OF STDOUT: `ci-watch: VERDICT=<n> <words>`.
 # Read that line whenever anything stands between this script and you, because
@@ -66,6 +74,7 @@ verdict_words() {
     1) echo "RED — at least one step did not succeed" ;;
     2) echo "NO VERDICT — could not resolve or observe a pipeline" ;;
     3) echo "STILL RUNNING at the timeout — NOT green" ;;
+    4) echo "KILLED — cancelled or superseded by a newer commit, NOT a test failure" ;;
     *) echo "ci-watch itself failed before reaching a verdict" ;;
   esac
 }
@@ -236,7 +245,32 @@ if [ "$timed_out" -eq 1 ]; then
   exit 3
 fi
 
+# A step that is not success|skipped makes rc=1 above — but "did not succeed" and
+# "failed" are DIFFERENT FACTS, and RED is what a caller ACTS on. Woodpecker KILLS
+# an in-flight pipeline when a newer commit supersedes it, so an ordinary force-push
+# turns a healthy branch's steps into `killed` and reads as RED. That false RED lands
+# on the superseded sha — precisely the one nobody revisits — where it goes
+# unexamined and can later be quoted as proof the branch was broken.
+#
+# So ask the PIPELINE about itself. The step table is a report ABOUT the pipeline;
+# the API's `.status` IS the pipeline.
+#
+# FAIL-CLOSED: if that query fails, or says anything other than `killed`, rc stays 1.
+# A broken lookup must never downgrade a real RED.
 if [ "$rc" -ne 0 ]; then
+  pstatus=$(curl -fsS -H "Authorization: Bearer $WOODPECKER_TOKEN" \
+    "$WOODPECKER_SERVER/api/repos/$REPO/pipelines/$pipeline" 2>/dev/null |
+    python3 -c 'import json,sys; print(json.load(sys.stdin).get("status",""))' 2>/dev/null) || pstatus=""
+  if [ "$pstatus" = "killed" ]; then
+    rc=4
+    echo "ci-watch: pipeline $pipeline status is KILLED — cancelled or superseded by a newer commit." >&2
+    echo "  Not a test failure. Steps below were cancelled mid-flight, so their logs are not evidence." >&2
+    echo "  If you superseded this sha yourself, this is an artifact. Otherwise find out who cancelled it." >&2
+  fi
+fi
+
+# Dump logs only for a genuine failure. A cancelled step has no failure to show.
+if [ "$rc" -eq 1 ]; then
   while IFS='|' read -r pid name state; do
     case "$state" in success|skipped|"") continue ;; esac
     echo; echo "=== log: $name ($state) ==="
