@@ -117,7 +117,7 @@ export const defaults: Layer = {
   verbose: false,
   /** the fleet-wide disable list — every launch drops these. Add a name here
    *  to take a built-in tool away from every agent on every profile. */
-  disallowedTools: ["TaskOutput"],
+  disallowedTools: ["TaskOutput", "Artifact"],
   why: "base",
 };
 
@@ -180,18 +180,24 @@ export const arms: Record<string, Arm> = {
 };
 
 // ─── third-party endpoints ──────────────────────────────────────────────────
-// A profile that sets ANTHROPIC_BASE_URL points at someone else's API, which
-// serves its own models — a claude id means nothing there. When this probe
-// holds we emit NO --model at all, and the profile's own ANTHROPIC_MODEL
-// applies. That is ~27 of the installed profiles (zenmux, vol, glm, minimax,
-// deepseek …), none of which are named in the routes below — deepseek-ollama
-// is the one exception, routed below because its endpoint serves a known id.
+// A profile whose ANTHROPIC_BASE_URL is set to a NON-Anthropic URL points at
+// someone else's API, which serves its own models — a claude id means nothing
+// there. When this probe holds we emit NO --model at all, no matter what the
+// routes or a saved settings.json say — the profile's own ANTHROPIC_MODEL (or
+// its settings.json `model`, which the harness reads natively) applies. That
+// is ~27 of the installed profiles (zenmux, vol, glm, minimax, deepseek …),
+// none of which are named in the routes below — deepseek-ollama is the one
+// exception, routed below because its endpoint serves a known id.
+//
+// `!~` = set AND value does not contain. A URL that mentions anthropic.com is
+// Anthropic's own API — claude ids are meaningful there, so the fleet rules
+// apply untouched.
 //
 // A `pin`ned arm is the exception: pinning states that we DO know this
 // endpoint's model id. codex depends on it — its .env sets no ANTHROPIC_MODEL,
 // so dropping ours would leave it with no model at all.
 
-export const ENDPOINT_SERVES_ITS_OWN_MODEL = "env:ANTHROPIC_BASE_URL";
+export const ENDPOINT_SERVES_ITS_OWN_MODEL = "env:ANTHROPIC_BASE_URL!~anthropic.com";
 
 // ─── pools ──────────────────────────────────────────────────────────────────
 // Named sets of ucc profiles. A route matches a pool instead of listing

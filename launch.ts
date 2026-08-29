@@ -85,12 +85,6 @@ export type World = {
   pick: (candidates: string[]) => string;
   /** per-user pool members from pools.local.json — merged with rules.ts pools */
   localPools: Record<string, string[]>;
-  /**
-   * model the user saved via the TUI (/model) into $CLAUDE_CONFIG_DIR/settings.json.
-   * Endpoint profiles honor this over ANTHROPIC_MODEL so a picker choice sticks
-   * across restarts (CLI --model beats env).
-   */
-  settingsModel: () => string | undefined;
 };
 
 // ─── Config: the decision, before it becomes flags ──────────────────────────
@@ -136,21 +130,6 @@ const fail: (msg: string) => never = (msg) => {
 // THE WORLD — the only code that touches env, disk, or PATH.
 // ═══════════════════════════════════════════════════════════════════════════
 
-/** Read settings.json `model` from a Claude config dir. Empty/missing → undefined. */
-export function readSettingsModel(configDir: string | undefined): string | undefined {
-  if (!configDir || !configDir.trim()) return undefined;
-  const path = join(configDir, "settings.json");
-  if (!existsSync(path)) return undefined;
-  try {
-    const raw = JSON.parse(readFileSync(path, "utf8")) as { model?: unknown };
-    if (typeof raw.model !== "string") return undefined;
-    const m = raw.model.trim();
-    return m === "" ? undefined : m;
-  } catch {
-    return undefined;
-  }
-}
-
 export function realWorld(env = process.env, localPools: Record<string, string[]> = {}): World {
   return {
     env,
@@ -172,7 +151,6 @@ export function realWorld(env = process.env, localPools: Record<string, string[]
     },
     pick: (c) => c[Math.floor(Math.random() * c.length)],
     localPools,
-    settingsModel: () => readSettingsModel(env.CLAUDE_CONFIG_DIR),
   };
 }
 
@@ -186,7 +164,6 @@ export function fixedWorld(over: Partial<World> = {}): World {
     hasBin: () => false,
     pick: (c) => c[0],
     localPools: {},
-    settingsModel: () => undefined,
     ...over,
   };
 }
@@ -290,7 +267,16 @@ function probeOne(term: string, ctx: Ctx, world: World): boolean {
   const kind = term.slice(0, cut);
   const rest = term.slice(cut + 1);
   if (kind === "env") {
+    const bang = rest.indexOf("!~");
     const tilde = rest.indexOf("~");
+    if (bang >= 0 && (tilde < 0 || bang < tilde)) {
+      // set AND value does NOT contain — an unset or empty var fails both
+      // directions on purpose: "set and missing the substring" is one claim.
+      const name = rest.slice(0, bang).trim();
+      const value = world.env[name] ?? "";
+      if (value === "") return false;
+      return !value.includes(interpolate(rest.slice(bang + 2), ctx, world));
+    }
     const name = (tilde < 0 ? rest : rest.slice(0, tilde)).trim();
     const value = world.env[name] ?? "";
     if (tilde < 0) return value !== "";
@@ -622,18 +608,10 @@ export function resolve(ctx: Ctx, world: World): Plan {
       );
       config.effort = undefined;
     }
-    // TUI /model writes settings.json `model`. Without an explicit --model,
-    // emit that saved id so it beats ANTHROPIC_MODEL on the next launch
-    // (otherwise env pins the default forever and the picker looks broken).
-    if (asked === undefined) {
-      const saved = world.settingsModel();
-      if (saved) {
-        config.model = withOneM(saved);
-        trace.push(
-          `settings.json model ${saved}: honoring saved/TUI choice over ANTHROPIC_MODEL`,
-        );
-      }
-    }
+    // No re-emission of a saved settings.json `model` either: an un-asked
+    // launch on someone else's API sets nothing. A TUI /model pick still
+    // sticks across restarts — the harness reads settings.json `model`
+    // natively when no --model flag arrives.
   }
 
   // 3. layers — every match applies, in order
@@ -1187,6 +1165,26 @@ function installedProfiles(env: Record<string, string | undefined>): string[] {
 // `import.meta.main` only landed in Node 24.2, and a silently-skipped CLI
 // block would degrade every wrapper launch to "unparseable render output".
 // Comparing argv[1] to this file works on every runtime that can load it.
+/** The seat's environment, for render/explain: the profile's .env is sourced
+ *  over the caller's env at launch, so the engine answers env probes (which
+ *  endpoint is this, really?) against THAT merged view. A pre-render from
+ *  ccc-tmux runs in the spawner's shell, which may be a different endpoint
+ *  session or none at all — without the overlay it would route the seat as if
+ *  it launched from the spawner's world. A wrapper render already ran with
+ *  .env sourced; the overlay is then the same values, so the two renders
+ *  agree. Matrix does its own per-profile overlay and stays on raw env. */
+const seatEnv = (ctx: Ctx): Record<string, string | undefined> => {
+  const own = ctx.profile ? readProfileEnv(ctx.profile, process.env) : {};
+  if (!ctx.profile || Object.keys(own).length === 0) return process.env;
+  const merged: Record<string, string | undefined> = { ...process.env };
+  // .env values may reference other vars (${HOME} is the installer's habit);
+  // expand against the merged view, which already carries the process env.
+  for (const [k, v] of Object.entries(own)) {
+    merged[k] = v?.replace(/\$\{(\w+)\}|\$(\w+)/g, (m, a, b) => merged[(a ?? b) as string] ?? m);
+  }
+  return merged;
+};
+
 const isMain =
   (import.meta as { main?: boolean }).main ??
   (process.argv[1] !== undefined &&
@@ -1206,7 +1204,7 @@ if (isMain) {
   const world = realWorld(process.env, poolsPath ? readLocalPools(poolsPath) : {});
 
   if (p.verb === "render") {
-    const { argv, plan } = render(p.ctx, world);
+    const { argv, plan } = render(p.ctx, realWorld(seatEnv(p.ctx), world.localPools));
     if (plan.refusal) {
       console.error(`launch: REFUSED — ${plan.refusal}`);
       process.exit(2);
@@ -1226,7 +1224,7 @@ if (isMain) {
       );
     }
   } else if (p.verb === "explain") {
-    const { argv, plan } = render(p.ctx, world);
+    const { argv, plan } = render(p.ctx, realWorld(seatEnv(p.ctx), world.localPools));
     const ctx = p.ctx;
     console.log(
       `launch  harness=${ctx.harness} profile=${ctx.profile ?? "—"} role=${ctx.role ?? "—"} ` +

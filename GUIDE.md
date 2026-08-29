@@ -29,10 +29,23 @@ Then two rules run over the result:
 - **Every claude id carries `[1m]`.** Without it the session reports a 200k
   context window. The router strips the postfix before matching, so a route
   says `claude-opus-5` and both spellings reach it.
-- **A profile with `ANTHROPIC_BASE_URL` gets no `--model` at all.** It points
-  at someone else's API, which serves its own models. The profile's own
-  `ANTHROPIC_MODEL` applies instead. A `pin`ned arm is the exception — pinning
-  states that we know that endpoint's id.
+- **A non-Anthropic `ANTHROPIC_BASE_URL` gets no fleet `--model` — none, no
+  matter what.** The seat points at someone else's API, which serves its own
+  ids, so anything we default — the route arm, or a saved `settings.json`
+  `model` — would likely be wrong. The profile's own `ANTHROPIC_MODEL`
+  applies, and a TUI `/model` pick still sticks across restarts because the
+  harness reads `settings.json` `model` natively when no `--model` flag
+  arrives. A URL containing `anthropic.com` counts as Anthropic's own API
+  and keeps the fleet rules. Arm effort is dropped with the model (so
+  settings `effortLevel` sticks); layers like minimax may still set effort.
+  A `pin`ned arm is the exception — pinning states that we know that
+  endpoint's id and always send it.
+- **The engine judges the seat's env, not the renderer's.** A profile's
+  `.env` is sourced over the caller's env at launch, so `render`/`explain`
+  overlay the profile `.env` on the caller env before answering env probes.
+  A ccc-tmux pre-render from a claude-account shell therefore still sees a
+  GLM seat's endpoint and splices no model into it — and a wrapper render,
+  which already ran with `.env` sourced, renders identically.
 
 `layers` carries only functional config (the shared `.mcp.json`, the
 ccc-statusd MCP, the MiniMax MCP) — each gated by `requires` probes against

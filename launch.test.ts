@@ -13,7 +13,7 @@
 // Run: bun test launch.test.ts   (from this repo root)
 
 import { describe, test, expect, afterAll } from "bun:test";
-import { mkdtempSync, writeFileSync, readFileSync, rmSync, chmodSync, existsSync, statSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, chmodSync, existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir, homedir } from "node:os";
 import {
@@ -94,6 +94,28 @@ function runWith(bin: string, args: string[]): RunResult {
 
 const run = (args: string[]): RunResult => runWith("bun", args);
 
+/** like run, with an env override — for seat-env cases that must not inherit
+ *  the test shell's endpoint (CLAUDE_ENV already scrubs it) */
+const runWithEnv = (env: NodeJS.ProcessEnv, args: string[]): RunResult => {
+  const proc = Bun.spawnSync(["bun", LAUNCH, ...args], {
+    cwd: import.meta.dir,
+    env: { ...env },
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const stdout = proc.stdout.toString();
+  const stderr = proc.stderr.toString();
+  let json: RunResult["json"] = null;
+  if (proc.exitCode === 0 && stdout.trim().startsWith("{")) {
+    try {
+      json = JSON.parse(stdout);
+    } catch {
+      /* leave null; a test asserting json fails loudly */
+    }
+  }
+  return { exitCode: proc.exitCode, stdout, stderr, json, promptFiles: {} };
+};
+
 const modelOf = (r: RunResult): string | undefined => {
   const i = r.json!.argv.indexOf("--model");
   return i >= 0 ? r.json!.argv[i + 1] : undefined;
@@ -118,15 +140,17 @@ describe("deployed selection (process contract, real repo)", () => {
       const r = run(args);
       expect(r.json!.argv).not.toContain("--append-system-prompt-file");
       const prompt = r.promptFiles["--system-prompt-file"];
-      expect(prompt).toContain("# Harness Environment");
-      expect(prompt).toContain("never kills the command");
+      expect(prompt).toContain("# Harness");
+      // the Bash-timeout policy, in either prompt generation's phrasing —
+      // the shared invariant is "lapsed ≠ interrupted, never re-run"
+      expect(prompt).toContain("never re-run it");
     }
   });
 
   test("advisor is the one role that stays on fable", () => {
     const r = run(["--role", "advisor"]);
     expect(modelOf(r)).toBe("claude-fable-5[1m]");
-    expect(promptOf(r)).toBe("fable-5-calibration.advisor.md");
+    expect(promptOf(r)).toBe("fable-5-ownership.advisor.md");
   });
 
   test("leader and worker run opus-5", () => {
@@ -143,10 +167,10 @@ describe("deployed selection (process contract, real repo)", () => {
       // one file carries everything; nothing rides a separate append flag
       expect(r.json!.argv).not.toContain("--append-system-prompt-file");
       const prompt = r.promptFiles["--system-prompt-file"];
-      expect(prompt).toContain("# Harness Environment");
+      expect(prompt).toContain("# Harness");
       expect(prompt).toContain(`You are ${role === "advisor" ? "an" : "a"} **${role}**`);
       // the arm's own doctrine is in the same file, not a separate flag
-      expect(prompt).toContain("You are a software engineering agent");
+      expect(prompt).toContain("helps users with software engineering tasks");
       // the skill-preload directive is gone: config no longer writes prompt text
       expect(prompt).not.toContain("<session-startup>");
     }
@@ -161,7 +185,7 @@ describe("deployed selection (process contract, real repo)", () => {
   test("an endpoint profile carries role prompts too", () => {
     const r = run(["--profile", "grok", "--role", "worker"]);
     expect(modelOf(r)).toBe("grok-4.6[1m]");
-    expect(promptOf(r)).toBe("fable-5-calibration.worker.md");
+    expect(promptOf(r)).toBe("fable-5-ownership.worker.md");
   });
 
   test("every claude id carries [1m] — a bare id would report a 200k window", () => {
@@ -619,18 +643,91 @@ describe("third-party endpoints (ANTHROPIC_BASE_URL)", () => {
   });
 
   test("endpoint honors settings.json model over ANTHROPIC_MODEL (TUI /model save)", () => {
+    // REVERSED (2026-08-29, ZT): on a non-Anthropic endpoint an un-asked
+    // launch sets NOTHING — a foreign provider serves foreign ids, so any
+    // default we guess (route arm OR saved settings id) is likely wrong.
+    // A TUI /model pick still sticks: the harness reads settings.json
+    // `model` natively when no --model flag arrives.
     const w = fixedWorld({
       env: { ANTHROPIC_BASE_URL: "https://api.meta.ai", ANTHROPIC_MODEL: "muse-spark-1.2-contributor[1m]" },
-      settingsModel: () => "muse-spark-other[1m]",
     });
     const plan = resolve({ harness: "claude", role: "worker" }, w);
-    expect(plan.config.model).toBe("muse-spark-other[1m]");
-    expect(plan.trace.join(" ")).toContain("honoring saved/TUI choice");
-    // explicit CLI --model still wins the pass-through path (we emit nothing;
-    // the caller's flag rides through)
-    const explicit = resolve({ harness: "claude", model: "muse-explicit" }, w);
-    expect(explicit.config.model).toBeUndefined();
-    expect(explicit.warnings.join(" ")).toContain("rides through");
+    expect(plan.config.model).toBeUndefined();
+    expect(plan.trace.join(" ")).not.toContain("settings.json model");
+  });
+
+  test("an Anthropic base URL keeps the fleet rules — claude ids are meaningful there", () => {
+    for (const url of ["https://api.anthropic.com", "https://relay.corp.example/api.anthropic.com/v1"]) {
+      const plan = resolve(
+        { harness: "claude", role: "worker" },
+        fixedWorld({ env: { ANTHROPIC_BASE_URL: url } }),
+      );
+      expect(plan.config.model).toBe("claude-opus-5[1m]");
+    }
+  });
+
+  test("a non-Anthropic endpoint suppresses even when the path mentions anthropic", () => {
+    // the operator's own case: a GLM gateway whose route is /api/anthropic
+    const plan = resolve(
+      { harness: "claude", role: "worker" },
+      fixedWorld({ env: { ANTHROPIC_BASE_URL: "https://bigmodel.dev.coscene.tech/api/anthropic" } }),
+    );
+    expect(plan.config.model).toBeUndefined();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe("seat env (a profile's .env defines the seat's endpoint)", () => {
+  // The ccc-tmux pre-render runs in the SPAWNER's shell, which may be a
+  // claude-account session or none at all. The seat's endpoint comes from its
+  // profile .env, sourced over the caller env at launch — so the engine must
+  // answer the endpoint probe against that merged view, or the pre-render
+  // splices a claude id into a foreign-endpoint seat.
+  const dir = mkdtempSync(join(tmpdir(), "launch-seat-env-"));
+  afterAll(() => rmSync(dir, { recursive: true, force: true }));
+  const profile = join(dir, "profiles", "fake_endpoint");
+  mkdirSync(profile, { recursive: true });
+  writeFileSync(
+    join(profile, ".env"),
+    [
+      "CLAUDE_CONFIG_DIR=${HOME}/.local/share/ucc/profiles/fake_endpoint",
+      "UCC_PROFILE=fake_endpoint",
+      "ANTHROPIC_BASE_URL=https://bigmodel.dev.coscene.tech/api/anthropic",
+      "ANTHROPIC_MODEL=glm-5.3-flash[1m]",
+      "",
+    ].join("\n"),
+  );
+
+  const runSeat = (args: string[]): RunResult =>
+    runWithEnv({ ...CLAUDE_ENV, UCC_HOME: dir }, ["render", ...args]);
+
+  test("pre-render in a foreign shell: profile .env suppresses the fleet default", () => {
+    const r = runSeat(["--profile", "fake_endpoint", "--role", "worker"]);
+    expect(r.exitCode).toBe(0);
+    expect(modelOf(r)).toBeUndefined();
+    expect(r.json!.model_matched).toBe(false);
+    expect(r.json!.trace.join(" ")).toContain("serves its own");
+  });
+
+  test("wrapper render agrees: the overlay is idempotent when .env is already sourced", () => {
+    const r = runWithEnv(
+      {
+        ...CLAUDE_ENV,
+        UCC_HOME: dir,
+        ANTHROPIC_BASE_URL: "https://bigmodel.dev.coscene.tech/api/anthropic",
+        ANTHROPIC_MODEL: "glm-5.3-flash[1m]",
+        CLAUDE_CONFIG_DIR: `${homedir()}/.local/share/ucc/profiles/fake_endpoint`,
+      },
+      ["--profile", "fake_endpoint", "--role", "worker"],
+    );
+    expect(r.exitCode).toBe(0);
+    expect(modelOf(r)).toBeUndefined();
+  });
+
+  test("without a profile the caller's env decides — a claude shell gets the fleet default", () => {
+    const r = runSeat(["--role", "worker"]);
+    expect(r.exitCode).toBe(0);
+    expect(modelOf(r)).toBe("claude-opus-5[1m]");
   });
 });
 
@@ -808,6 +905,14 @@ describe("engine: probes", () => {
     expect(ok("env:URL~minimax.io", { URL: "https://api.anthropic.com" })).toBe(false);
   });
 
+  test("env:NAME!~text = set AND value lacks the substring", () => {
+    expect(ok("env:URL!~anthropic.com", { URL: "https://api.minimax.io/x" })).toBe(true);
+    expect(ok("env:URL!~anthropic.com", { URL: "https://api.anthropic.com" })).toBe(false);
+    // unset or empty fails the claim — "set and missing" is one predicate
+    expect(ok("env:URL!~anthropic.com")).toBe(false);
+    expect(ok("env:URL!~anthropic.com", { URL: "" })).toBe(false);
+  });
+
   test("file: exists, exec: exists and is executable, bin: is on PATH", () => {
     expect(ok(`file:${real}`)).toBe(true);
     expect(ok(`file:${real}-missing`)).toBe(false);
@@ -849,7 +954,7 @@ describe("engine: precedence and emit", () => {
     const plan = resolve({ harness: "claude", role: "worker" }, w);
     expect(plan.arm).toBe("opus-5:worker");
     expect(plan.config.systemPromptFile).toBe("prompts/opus-5-ownership.worker.md");
-    expect(plan.config.effort).toBe("medium");
+    expect(plan.config.effort).toBe("xhigh");
     expect(plan.config.append).toEqual([]);
   });
 
@@ -1016,7 +1121,7 @@ describe("mcp layers — the engine owns all launch config, bash injects nothing
       { harness: "claude" },
       fixedWorld({ ...base, env: { MINIMAX_API_KEY: "k", MINIMAX_API_HOST: "https://h.example" } }),
     );
-    expect(armed.config.disallowedTools).toEqual(["TaskOutput", "WebSearch"]);
+    expect(armed.config.disallowedTools).toEqual(["TaskOutput", "Artifact", "WebSearch"]);
     const cfg = armed.config.mcp[0] as { mcpServers: { MiniMax: { env: Record<string, string> } } };
     expect(cfg.mcpServers.MiniMax.env.MINIMAX_API_KEY).toBe("k");
     expect(cfg.mcpServers.MiniMax.env.MINIMAX_API_HOST).toBe("https://h.example");
@@ -1200,7 +1305,7 @@ describe("matrix", () => {
     expect(golden).toContain("sonnet");
     // every role prompt must be visible in the table
     expect(golden).toContain("opus-5-ownership.worker.md");
-    expect(golden).toContain("fable-5-calibration.advisor.md");
+    expect(golden).toContain("fable-5-ownership.advisor.md");
   });
 
   test("matrix --html writes a self-contained page with the data inlined", () => {
