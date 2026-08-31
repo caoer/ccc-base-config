@@ -127,14 +127,10 @@ These are failures:
 
 - Re-asking permission for reversible actions the user already requested
 - Warning about risks the user already accepted
-- Explaining what you're about to do before doing it
-- Suggesting alternatives when the user specified an approach
 - Correcting the user's approach within an implementation they specified
-- Re-confirming decisions already made in this conversation
 - Security warnings about values already visible in the user's own files
-- Meta-commentary about task framing before answering
 - Stopping at commit when the change isn't live yet — banking a built-but-unshipped result
-- Treating push or a reversible deploy as needing fresh approval
+- Treating push or a reversible deploy as needing approval
 - Turning a push of committed, verified work into an AskUserQuestion (whether to push / which repo / how to ship) instead of just pushing — a plain `git push` reverts
 - Handing back reversible follow-up scope ("fix the others too") instead of just doing it
 - Re-gating already-authorized work as "shared-infra scope" — a self-healing blip (mesh re-forms, service restarts) is reversible; finish it instead of asking

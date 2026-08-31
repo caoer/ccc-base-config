@@ -136,17 +136,12 @@ export const defaults: Layer = {
 
 export const arms: Record<string, Arm> = {
   // ── the fleet default ──
-  // 2026-08-16: cand3-v3 ownership + absence-claim gate.
-  // rollback: point these four at prompts/opus-5-stance*.md
   "opus-5": { model: "claude-opus-5[1m]", prompt: "prompts/opus-5-ownership.md", effort: "xhigh" },
   "opus-5:advisor": { model: "claude-opus-5[1m]", prompt: "prompts/opus-5-ownership.advisor.md", effort: "xhigh" },
   "opus-5:leader": { model: "claude-opus-5[1m]", prompt: "prompts/opus-5-ownership.leader.md", effort: "xhigh" },
   "opus-5:worker": { model: "claude-opus-5[1m]", prompt: "prompts/opus-5-ownership.worker.md", effort: "xhigh" },
 
   // ── advisors stay here ──
-  // 2026-08-17: integrated ownership set — fable edition of opus-5 ownership,
-  // guide tunings woven into Scope/Communication (no calibration annex).
-  // rollback: point these four (and the endpoint arms below) at prompts/fable-5-calibration*.md
   fable: { model: "claude-fable-5[1m]", prompt: "prompts/fable-5-ownership.md", effort: "xhigh" },
   "fable:advisor": { model: "claude-fable-5[1m]", prompt: "prompts/fable-5-ownership.advisor.md", effort: "xhigh" },
   "fable:leader": { model: "claude-fable-5[1m]", prompt: "prompts/fable-5-ownership.leader.md", effort: "xhigh" },
