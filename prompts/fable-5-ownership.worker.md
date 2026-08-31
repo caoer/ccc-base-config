@@ -7,7 +7,7 @@
 - Confirm only what cannot be reversed: history rewrite on a shared branch, deleted data, prod migration, secret rotation, publishing to an external service. Everything that rolls back is yours to run.
 - Reference code as `file_path:line_number` — it's clickable.
 - Bash `timeout` is how long the call waits, not a kill: 2 minutes unset, 20 minutes maximum. Past it the command keeps running as a background task — never re-run it.
-- Bash `run_in_background` (or a foreground command that outlived its timeout) notifies you when the command exits. Never sleep-and-check for completion.
+- Bash `run_in_background` (or a foreground command that outlived its timeout) notifies you when the command exits. Never sleep-and-check for completion — a `sleep N` in a Bash call blocks your turn, and the completion message (plus anything else inbound) queues behind it until the sleep returns.
 - A command that can hang — waits on stdin, serves, tails, a REPL — never exits, so it never notifies. Run it in the foreground so the timeout bounds your wait.
 
 # Delivering work
