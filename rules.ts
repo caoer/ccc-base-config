@@ -117,7 +117,7 @@ export const defaults: Layer = {
   verbose: false,
   /** the fleet-wide disable list — every launch drops these. Add a name here
    *  to take a built-in tool away from every agent on every profile. */
-  disallowedTools: ["TaskOutput", "Artifact"],
+  disallowedTools: ["TaskOutput", "Artifact", "ReportFindings"],
   why: "base",
 };
 
@@ -317,12 +317,18 @@ export const layers: Layer[] = [
   // a registration pointing at a subcommand that does not exist. That also
   // retires the old rollback (unexport the token): rolling back the transport
   // now means rolling back the binary.
+  //
+  // THE GATE IS THE DAEMON, NOTHING ELSE. This is the record/tool surface the
+  // fleet's protocol skills run on, so it rides EVERY launcher on every
+  // machine: the binary exists, and its minted token is exported. The token
+  // export is installer-owned (templates/default-env.sh) precisely so it is
+  // not one machine's hand-edited user-env.sh — a launcher whose shell lacks
+  // it launches an agent with no read/put/sql/sub at all, silently.
   {
     why: "ccc-statusd mcp, daemon-served streamable HTTP (U1.0) — the only transport; needs the daemon-minted token exported",
     requires: [
       "exec:${HOME}/.local/bin/ccc-statusd",
       "env:CCC_STATUSD_MCP_TOKEN",
-      "env:SUPERZ_BOT_TOKEN | file:${CCC_TELEGRAM_SECRETS_FILE} | file:${CCC_TELEGRAM_DATA_DIR:-~/.local/share/ucc/data/ccc-telegram}/telegram.yaml",
     ],
     mcp: [
       {

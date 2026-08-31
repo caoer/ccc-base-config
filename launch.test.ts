@@ -1100,6 +1100,26 @@ describe("mcp layers — the engine owns all launch config, bash injects nothing
     expect(plan.trace.join("\n")).toContain("skipped — needs");
   });
 
+  test("ccc-statusd mcp rides every launcher: the binary and the exported token are the whole gate", () => {
+    // The record/tool surface every agent depends on. No telegram config, no
+    // shared .mcp.json, no MiniMax key — it registers anyway, on every role.
+    const w = fixedWorld({
+      env: { HOME: "/home/zt", CCC_STATUSD_MCP_TOKEN: "tok" },
+      hasExec: (p: string) => p === "/home/zt/.local/bin/ccc-statusd",
+    });
+    for (const role of ["advisor", "leader", "worker"] as const) {
+      const plan = resolve({ harness: "claude", role }, w);
+      const servers = plan.config.mcp
+        .filter((m): m is Record<string, any> => typeof m === "object")
+        .map((m) => m.mcpServers?.["ccc-statusd"])
+        .filter(Boolean);
+      expect(servers.length).toBe(1);
+      expect(servers[0].type).toBe("http");
+      expect(servers[0].url).toBe("http://localhost:19223/mcp");
+      expect(servers[0].headers.Authorization).toBe("Bearer tok");
+    }
+  });
+
   test("mcp configs accumulate and never displace the arm's prompt", () => {
     const w = fixedWorld({
       env: { HOME: "/home/zt", SUPERZ_BOT_TOKEN: "t", CCC_STATUSD_MCP_TOKEN: "t" },
@@ -1121,7 +1141,7 @@ describe("mcp layers — the engine owns all launch config, bash injects nothing
       { harness: "claude" },
       fixedWorld({ ...base, env: { MINIMAX_API_KEY: "k", MINIMAX_API_HOST: "https://h.example" } }),
     );
-    expect(armed.config.disallowedTools).toEqual(["TaskOutput", "Artifact", "WebSearch"]);
+    expect(armed.config.disallowedTools).toEqual(["TaskOutput", "Artifact", "ReportFindings", "WebSearch"]);
     const cfg = armed.config.mcp[0] as { mcpServers: { MiniMax: { env: Record<string, string> } } };
     expect(cfg.mcpServers.MiniMax.env.MINIMAX_API_KEY).toBe("k");
     expect(cfg.mcpServers.MiniMax.env.MINIMAX_API_HOST).toBe("https://h.example");
