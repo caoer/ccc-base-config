@@ -301,9 +301,43 @@ export const layers: Layer[] = [
     disallowedTools: ["AskUserQuestion"],
   },
   {
-    why: "shared mcp servers (tolaria, shellkit)",
+    why: "shared mcp servers (tolaria and anything else a host adds by hand)",
     requires: ["file:~/.local/share/ucc/shared/.mcp.json"],
     mcp: ["~/.local/share/ucc/shared/.mcp.json"],
+  },
+  // shellkit — the fleet's remote-execution surface (the `ssh` tool: step
+  // scripts, fan-out, file transfer, tmux). Promoted out of the hand-written
+  // shared/.mcp.json above and into a first-class layer, on the same terms as
+  // ccc-statusd below: the release BUNDLES the binary (.shellkit-pin,
+  // install_shellkit), so this rides EVERY launcher on every machine rather
+  // than only the hosts where somebody wrote that file by hand.
+  //
+  // THE GATE IS THE BINARY AND THE TOKEN, NOTHING ELSE — deliberately NOT the
+  // inventory. Most fleet hosts carry no Nix inventory; shellkit serves with
+  // zero inventory hosts and still resolves raw user@host targets and
+  // ~/.ssh/config aliases, so gating on an inventory would delete the server
+  // from every host but zmax. The token export is installer-owned
+  // (templates/default-env.sh), and `shellkit mcp start` is what mints it.
+  {
+    why: "shellkit mcp, daemon-served streamable HTTP — needs the minted token exported",
+    requires: [
+      "exec:${HOME}/.local/bin/shellkit",
+      "env:SHELLKIT_MCP_TOKEN",
+    ],
+    mcp: [
+      {
+        mcpServers: {
+          shellkit: {
+            type: "http",
+            url: "http://localhost:${SHELLKIT_MCP_PORT:-19222}/mcp",
+            headers: {
+              Authorization: "Bearer ${SHELLKIT_MCP_TOKEN}",
+            },
+            timeout: 86400000,
+          },
+        },
+      },
+    ],
   },
   // U1.0 transport unification: ONE ccc-statusd MCP layer. The stdio sidecar
   // that used to sit here (`ccc-statusd mcp`) was deleted from the binary on
