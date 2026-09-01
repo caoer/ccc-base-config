@@ -216,6 +216,24 @@ describe("deployed selection (process contract, real repo)", () => {
     );
   });
 
+  test("claude-fable-5-1 is a first-class fable id — role prompts kept, effort suffix split, 5 and 5-1 both route", () => {
+    for (const id of ["claude-fable-5", "claude-fable-5-1"]) {
+      for (const role of ["advisor", "leader", "worker"]) {
+        const r = run(["--model", id, "--role", role]);
+        expect(modelOf(r)).toBe(`${id}[1m]`);
+        expect(promptOf(r)).toBe(`fable-5-ownership.${role}.md`);
+      }
+      const bare = run(["--model", id]);
+      expect(modelOf(bare)).toBe(`${id}[1m]`);
+      expect(promptOf(bare)).toBe("fable-5-ownership.md");
+    }
+    // the effort suffix peels off the 5-1 id like any known claude id
+    const r = run(["--model", "claude-fable-5-1-xhigh", "--role", "worker"]);
+    expect(modelOf(r)).toBe("claude-fable-5-1[1m]");
+    expect(r.json!.argv[r.json!.argv.indexOf("--effort") + 1]).toBe("xhigh");
+    expect(promptOf(r)).toBe("fable-5-ownership.worker.md");
+  });
+
   test("an effort suffix splits off and beats the arm's effort", () => {
     const r = run(["--model", "claude-opus-5-low"]);
     expect(modelOf(r)).toBe("claude-opus-5[1m]");

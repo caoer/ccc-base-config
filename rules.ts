@@ -259,10 +259,13 @@ export const routes: Route[] = [
   { when: { model: "claude-opus-5", role: "worker" }, use: "opus-5:worker" },
   { when: { model: "claude-opus-5" }, use: "opus-5" },
 
-  { when: { model: "claude-fable-5", role: "advisor" }, use: "fable:advisor" },
-  { when: { model: "claude-fable-5", role: "leader" }, use: "fable:leader" },
-  { when: { model: "claude-fable-5", role: "worker" }, use: "fable:worker" },
-  { when: { model: "claude-fable-5" }, use: "fable" },
+  //    claude-fable-5 and claude-fable-5-1 are both real ids (5-1 ships in
+  //    Claude Code 2.1.257); either keeps its role prompt. The requested id is
+  //    emitted as asked, so the arm's model is only the noModel default below.
+  { when: { model: ["claude-fable-5", "claude-fable-5-1"], role: "advisor" }, use: "fable:advisor" },
+  { when: { model: ["claude-fable-5", "claude-fable-5-1"], role: "leader" }, use: "fable:leader" },
+  { when: { model: ["claude-fable-5", "claude-fable-5-1"], role: "worker" }, use: "fable:worker" },
+  { when: { model: ["claude-fable-5", "claude-fable-5-1"] }, use: "fable" },
 
   { when: { model: "claude-opus-4-8" }, use: "opus-4-8", why: "no role prompts for this arm" },
   //    variant catch-alls — an unlisted claude spelling still gets a prompt
