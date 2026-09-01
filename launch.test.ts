@@ -1136,6 +1136,47 @@ describe("mcp layers — the engine owns all launch config, bash injects nothing
     }
   });
 
+  test("shellkit mcp rides every launcher: the binary and the exported token are the whole gate", () => {
+    // The remote-execution surface. No shared .mcp.json and — the point of the
+    // layer — no SSH inventory: shellkit serves with zero inventory hosts, so
+    // gating on one would delete this server from every host but zmax.
+    const w = fixedWorld({
+      env: { HOME: "/home/zt", SHELLKIT_MCP_TOKEN: "sk-tok" },
+      hasExec: (p: string) => p === "/home/zt/.local/bin/shellkit",
+    });
+    for (const role of ["advisor", "leader", "worker"] as const) {
+      const plan = resolve({ harness: "claude", role }, w);
+      const servers = plan.config.mcp
+        .filter((m): m is Record<string, any> => typeof m === "object")
+        .map((m) => m.mcpServers?.["shellkit"])
+        .filter(Boolean);
+      expect(servers.length).toBe(1);
+      expect(servers[0].type).toBe("http");
+      expect(servers[0].url).toBe("http://localhost:19222/mcp");
+      expect(servers[0].headers.Authorization).toBe("Bearer sk-tok");
+    }
+  });
+
+  test("shellkit is not registered without the binary or without the token", () => {
+    // Two independent halves of one gate. Registering against a listener that
+    // is not there costs every launch an MCP connect timeout.
+    const noBinary = resolve(
+      { harness: "claude", role: "worker" },
+      fixedWorld({ env: { HOME: "/home/zt", SHELLKIT_MCP_TOKEN: "sk-tok" }, hasExec: () => false }),
+    );
+    const noToken = resolve(
+      { harness: "claude", role: "worker" },
+      fixedWorld({ env: { HOME: "/home/zt" }, hasExec: (p: string) => p === "/home/zt/.local/bin/shellkit" }),
+    );
+    for (const plan of [noBinary, noToken]) {
+      const servers = plan.config.mcp
+        .filter((m): m is Record<string, any> => typeof m === "object")
+        .map((m) => m.mcpServers?.["shellkit"])
+        .filter(Boolean);
+      expect(servers.length).toBe(0);
+    }
+  });
+
   test("mcp configs accumulate and never displace the arm's prompt", () => {
     const w = fixedWorld({
       env: { HOME: "/home/zt", SUPERZ_BOT_TOKEN: "t", CCC_STATUSD_MCP_TOKEN: "t" },
