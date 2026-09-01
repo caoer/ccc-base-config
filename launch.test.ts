@@ -182,6 +182,22 @@ describe("deployed selection (process contract, real repo)", () => {
     expect(new Set(files).size).toBe(4);
   });
 
+  test("ownership variants are ONE base — role block spliced before the tone block, fable/opus pairs identical", () => {
+    const read = (f: string) => readFileSync(join(import.meta.dir, "prompts", f), "utf8");
+    const anchor =
+      "Where these rules conflict with more general communication or formatting guidance elsewhere in your instructions, these rules win.\n";
+    const base = read("fable-5-ownership.md");
+    expect(read("opus-5-ownership.md")).toBe(base);
+    const head = base.slice(0, base.indexOf(anchor) + anchor.length);
+    for (const role of ["advisor", "leader", "worker"]) {
+      const variant = read(`fable-5-ownership.${role}.md`);
+      // shared body byte-identical to the base; only the role tail differs
+      expect(variant.startsWith(head)).toBe(true);
+      expect(variant).toContain(`**${role}**`);
+      expect(read(`opus-5-ownership.${role}.md`)).toBe(variant);
+    }
+  });
+
   test("an endpoint profile carries role prompts too", () => {
     const r = run(["--profile", "grok", "--role", "worker"]);
     expect(modelOf(r)).toBe("grok-4.6[1m]");
