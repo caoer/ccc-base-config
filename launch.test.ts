@@ -185,7 +185,7 @@ describe("deployed selection (process contract, real repo)", () => {
   test("ownership variants are ONE base — role block spliced before the tone block, fable/opus pairs identical", () => {
     const read = (f: string) => readFileSync(join(import.meta.dir, "prompts", f), "utf8");
     const anchor =
-      "Where these rules conflict with more general communication or formatting guidance elsewhere in your instructions, these rules win.\n";
+      "None of this restraint applies to thinking blocks.\n";
     const base = read("fable-5-ownership.md");
     expect(read("opus-5-ownership.md")).toBe(base);
     const head = base.slice(0, base.indexOf(anchor) + anchor.length);

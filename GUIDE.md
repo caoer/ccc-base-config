@@ -8,6 +8,7 @@ system prompt, which flags. Two files do the work.
 | `rules.ts` | **The config.** Pure data — tables you edit. Nothing in it runs. Ships in the UCC package, so nothing user-specific goes here. |
 | `launch.ts` | The engine. Reads the tables, answers them against the machine, prints flags. You rarely open it. |
 | `prompts/*.md` | The system prompts. Written elsewhere; only pointed at from `rules.ts`. |
+| `prompts/NOTES.md` | Maintainer notes for the ownership prompt family: the rebuild recipe for the role variants, the next cuts per section, and what is held out of the prompt by design. Not a prompt. |
 | `pools.local.json` | **Per-user pool members** (e.g. which accounts are fable-spent). Local to the machine, gitignored, never touched by the installer. |
 
 Everything else is generated or supporting: `matrix.golden.txt` (a rendered
