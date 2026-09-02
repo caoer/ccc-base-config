@@ -119,7 +119,7 @@ export const defaults: Layer = {
   verbose: false,
   /** the fleet-wide disable list — every launch drops these. Add a name here
    *  to take a built-in tool away from every agent on every profile. */
-  disallowedTools: ["TaskOutput", "Artifact", "ReportFindings"],
+  disallowedTools: ["TaskOutput", "Artifact", "ReportFindings", "ListAgents", "ScheduleWakeup"],
   why: "base",
 };
 

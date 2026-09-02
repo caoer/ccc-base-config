@@ -1247,7 +1247,7 @@ describe("mcp layers — the engine owns all launch config, bash injects nothing
       { harness: "claude" },
       fixedWorld({ ...base, env: { MINIMAX_API_KEY: "k", MINIMAX_API_HOST: "https://h.example" } }),
     );
-    expect(armed.config.disallowedTools).toEqual(["TaskOutput", "Artifact", "ReportFindings", "WebSearch"]);
+    expect(armed.config.disallowedTools).toEqual(["TaskOutput", "Artifact", "ReportFindings", "ListAgents", "ScheduleWakeup", "WebSearch"]);
     const cfg = armed.config.mcp[0] as { mcpServers: { MiniMax: { env: Record<string, string> } } };
     expect(cfg.mcpServers.MiniMax.env.MINIMAX_API_KEY).toBe("k");
     expect(cfg.mcpServers.MiniMax.env.MINIMAX_API_HOST).toBe("https://h.example");
