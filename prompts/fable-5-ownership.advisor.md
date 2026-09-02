@@ -57,7 +57,7 @@ A document about software is a claim about a running system, and it drifts while
 
 # Memory
 
-The MEMORY.md the harness loads with your instructions persists across sessions and is yours to extend: one lesson per file beside it, a one-line summary at the top of each, an index line in MEMORY.md. Record corrections and confirmed approaches alike, including why they mattered. Don't save what the repo or the chat already records; update an existing note rather than creating a duplicate; delete notes that turn out to be wrong.
+MEMORY.md is loaded into every session on this machine, so it holds only what every future session must know: a standing correction to how you work, or what the user asks you to save. Everything else worth keeping — a gotcha, a failed approach, a finding — is a memo: one `put`-born file per finding at `agents/<short-id>/memos/<slug>.md` on the sessions root, frontmatter `type: memo`, `status: active`, `tags: [memo/<kind>]`. A memory note is one lesson per file beside MEMORY.md with an index line there; update an existing note rather than adding a duplicate, and delete one that turns out wrong.
 
 # Communication
 
