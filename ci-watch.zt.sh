@@ -1,60 +1,66 @@
 #!/usr/bin/env bash
-# Wait for a Woodpecker pipeline, then print one line per step and the full log
-# of every step that did not succeed.
-#
-# Run it in the BACKGROUND — it notifies on exit, so nothing has to sit and
-# watch it. The script does the polling; the agent gets one verdict.
-#
-# Run it from inside the repo whose CI you are watching:
-#
-#   ~/.local/share/ucc/ci-watch.zt.sh              # newest pipeline for HEAD's sha
-#   ~/.local/share/ucc/ci-watch.zt.sh 122          # that pipeline number
-#   ~/.local/share/ucc/ci-watch.zt.sh --sha d863335f
-#   ~/.local/share/ucc/ci-watch.zt.sh --start      # trigger on main, then watch it
-#   ~/.local/share/ucc/ci-watch.zt.sh --timeout 10m 122
-#   ~/.local/share/ucc/ci-watch.zt.sh --sha d863335f --timeout 12m
-#
-# Flags may appear in any order; an unknown flag exits 2 rather than being
-# ignored.
-#
-# Exit code IS the verdict: 0 green, 1 red, 2 could not resolve a pipeline,
-# 3 still running when the timeout expired (states printed, nothing killed),
-# 4 the pipeline was KILLED — cancelled or superseded by a newer commit.
-#
-# 4 exists because "did not succeed" and "failed" are different facts, and RED is
-# what a caller ACTS on. Woodpecker kills an in-flight pipeline when a newer commit
-# supersedes it, so an ordinary force-push used to read as RED — on the superseded
-# sha, which is exactly the one nobody revisits, so the false RED went unexamined
-# and could later be quoted as proof a branch was broken. 4 is NOT green: a
-# pipeline killed for any other reason is still something you must look at.
-#
-# The verdict is ALSO the LAST LINE OF STDOUT: `ci-watch: VERDICT=<n> <words>`.
-# Read that line whenever anything stands between this script and you, because
-# A PIPE REPLACES OUR EXIT CODE WITH THE PIPE'S. `ci-watch … | tail` reports
-# tail's 0, so a red (1) or still-running (3) pipeline reads as GREEN.
-# Measured 2026-08-24: `--timeout 10m 984 2>&1 | tail -40` printed "still
-# running after 10m", exited 3, and the caller recorded 0 — a false green
-# (memo agents/fdc97943/memos/ci-watch-exit-0-on-still-running.md). 389 of 1622
-# recorded ci-watch invocations in the fleet transcripts are piped like that.
-# Redirect to a file and read $?, or read the VERDICT line — no pipe eats it.
-# Timeout defaults to 4m — raise it for a pipeline you know runs longer.
+# Wait for a Woodpecker pipeline, print one line per step and the full log of
+# every step that did not succeed, and exit with the verdict. Usage, exit codes
+# and environment: --help.
 #
 # Source of truth: ccc-config (git@github.com:caoer/ccc-private-config.git),
 # ci-watch.zt.sh at the repo root. Edit there, then copy to $UCC_HOME. A fix
 # made only in the deployed copy has no history and evaporates.
-# Token: $WOODPECKER_TOKEN, else decrypted from the sops store.
-# Server: $WOODPECKER_SERVER (default ci.0xdao.app).
-#
-# Repo: DERIVED from the git remote of the directory you run in, then resolved
-# to its Woodpecker id. Override explicitly with $WOODPECKER_REPO_ID. There is
-# NO default id — there used to be one (12 = meridian-rs), and because pipeline
-# NUMBERS COLLIDE ACROSS REPOS it would silently watch meridian-rs's pipeline of
-# the same number and print a confident verdict about the wrong project. On
-# 2026-08-19 that showed clippy failures in crates/wire-serve for a ccc-statusd
-# branch containing no Rust. A wrong-repo watch is not an error: it succeeds,
-# and it answers about somebody else. Now it either resolves the repo you are
-# standing in or exits 2.
 set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+ci-watch — wait for a Woodpecker pipeline on ci.0xdao.app, print one line per
+step and the full log of every step that did not succeed, exit with the verdict.
+
+Run it in the BACKGROUND (it notifies on exit; nothing has to sit and watch it),
+from INSIDE the repo whose CI you are watching. `tea`, the Forgejo CLI, cannot
+see pipelines; `woodpecker-cli` can, and this script wraps it.
+
+Usage:
+  ci-watch.zt.sh                      newest pipeline for HEAD's sha
+  ci-watch.zt.sh 122                  pipeline number 122
+  ci-watch.zt.sh --sha d863335f       newest pipeline for that sha
+  ci-watch.zt.sh --start [branch]     trigger a pipeline (default: main), then watch it
+  ci-watch.zt.sh --timeout 10m 122    wait longer than the 4m default (10m | 600 | 1h)
+  ci-watch.zt.sh --help
+
+Flags go in any order. An unknown flag exits 2 rather than being ignored.
+
+The exit code IS the verdict:
+  0  green — every step success or skipped
+  1  RED — a step did not succeed; its log is printed
+  2  no verdict — could not resolve or observe a pipeline
+  3  still running at the timeout (states printed, nothing killed) — NOT green
+  4  KILLED — cancelled or superseded by a newer commit. NOT a test failure and
+     NOT green; the cancelled steps' logs are not evidence.
+
+The verdict is ALSO the last line of stdout: `ci-watch: VERDICT=<n> <words>`.
+A pipe replaces the exit code with the pipe's own — `... | tail` reports tail's
+0, so red or still-running reads as green. Redirect to a file and read $?, or
+read the VERDICT line.
+
+Repo: derived from the git remotes of the directory you run in (a URL on the
+forge host, push URLs included), then resolved to its Woodpecker id. There is
+no default — pipeline NUMBERS COLLIDE ACROSS REPOS, so a bare number from the
+wrong checkout would answer, confidently, about another project. Override with
+WOODPECKER_REPO_ID; ids are on the repo page at ci.0xdao.app (`woodpecker-cli
+repo ls` lists names without them).
+
+Environment:
+  WOODPECKER_TOKEN       else decrypted from CCC_SECRETS_COMMON
+                         (default /Users/Shared/repos/osfiles/secrets/svc/common.sops.yaml)
+  WOODPECKER_SERVER      default https://ci.0xdao.app
+  WOODPECKER_REPO_ID     explicit repo id, skips the derivation above
+  WOODPECKER_FORGE_HOST  forge host the remotes are matched on, default git.0xdao.app
+  CI_WATCH_TIMEOUT       default 4m; --timeout overrides
+  CI_WATCH_INTERVAL      poll interval in seconds, default 20
+EOF
+}
+# Before the EXIT trap below is installed: --help must not print a VERDICT line.
+for arg in "$@"; do
+  case "$arg" in -h|--help) usage; exit 0 ;; esac
+done
 
 # ── The verdict has to survive the caller ────────────────────────────────────
 # The exit code is an OUT-OF-BAND channel, and a pipe silently drops it: the
@@ -123,7 +129,7 @@ while [ $# -gt 0 ]; do
       if [ $# -ge 2 ] && [ "${2#-}" = "$2" ]; then START_BRANCH=$2; shift 2
       else START_BRANCH=main; shift; fi ;;
     -*)
-      echo "ci-watch: unknown flag '$1' — see the header of $0" >&2; exit 2 ;;
+      echo "ci-watch: unknown flag '$1' — see $0 --help" >&2; exit 2 ;;
     *)
       PIPELINE_ARG=$1; shift ;;
   esac
