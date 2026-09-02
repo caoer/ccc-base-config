@@ -293,14 +293,17 @@ function probeOne(term: string, ctx: Ctx, world: World): boolean {
 const matchPlain = (patterns: string[], value: string | undefined): boolean =>
   patterns.some((p) => (p === "*" ? !!value : p === value));
 
-const matchModel = (patterns: string[], value: string | undefined): boolean =>
-  patterns.some((p) =>
-    p === "*"
-      ? !!value
-      : p.endsWith("*")
-        ? !!value && value.startsWith(p.slice(0, -1))
-        : p === value,
-  );
+/** The [1m] postfix is the harness's, not the id's, so it is stripped from BOTH
+ *  sides here: a rule may spell its model with or without it and still match a
+ *  request spelled either way. See § arms in rules.ts. */
+const matchModel = (patterns: string[], value: string | undefined): boolean => {
+  const v = value === undefined ? undefined : bareId(value);
+  return patterns.some((raw) => {
+    if (raw === "*") return !!v;
+    const p = bareId(raw);
+    return p.endsWith("*") ? !!v && v.startsWith(p.slice(0, -1)) : p === v;
+  });
+};
 
 const matchCwd = (
   patterns: string[],
@@ -418,6 +421,11 @@ function isKnownModelBase(model: string): boolean {
 
 /**
  * claude-opus-4-8-xhigh → { model: "claude-opus-4-8", effort: "xhigh" }
+ * claude-opus-4-8-xhigh[1m] → { model: "claude-opus-4-8[1m]", effort: "xhigh" }
+ *
+ * The suffix sits on the id, the [1m] postfix sits after it, so the postfix is
+ * peeled off first and put back on the base — otherwise the whole spelling
+ * routes as an unknown variant and the launch loses its role prompt.
  *
  * Only claude ids carry this convention, and only when the base id is one we
  * know (an arm or a route model pattern). An endpoint id is opaque —
@@ -428,11 +436,13 @@ function isKnownModelBase(model: string): boolean {
 export function splitEffort(model?: string): { model?: string; effort?: string } {
   if (!model) return {};
   if (!isClaude(model)) return { model };
+  const bare = bareId(model);
+  const postfix = model.slice(bare.length);
   for (const e of EFFORTS) {
-    if (!model.endsWith(`-${e}`)) continue;
-    const base = model.slice(0, -(e.length + 1));
+    if (!bare.endsWith(`-${e}`)) continue;
+    const base = bare.slice(0, -(e.length + 1));
     if (!isKnownModelBase(base)) return { model };
-    return { model: base, effort: e };
+    return { model: base + postfix, effort: e };
   }
   return { model };
 }

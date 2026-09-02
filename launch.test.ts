@@ -216,6 +216,19 @@ describe("deployed selection (process contract, real repo)", () => {
     );
   });
 
+  test("an effort suffix under the [1m] postfix still splits — role prompt and effort survive both spellings", () => {
+    for (const id of ["claude-opus-5", "claude-fable-5", "claude-fable-5-1"]) {
+      const bare = run(["--model", `${id}-xhigh`, "--role", "worker"]);
+      const oneM = run(["--model", `${id}-xhigh[1m]`, "--role", "worker"]);
+      expect(oneM.json!.argv).toEqual(bare.json!.argv);
+      expect(modelOf(oneM)).toBe(`${id}[1m]`);
+      expect(oneM.json!.argv[oneM.json!.argv.indexOf("--effort") + 1]).toBe("xhigh");
+      expect(promptOf(oneM)).toBe(
+        `${id.startsWith("claude-opus") ? "opus-5" : "fable-5"}-ownership.worker.md`,
+      );
+    }
+  });
+
   test("claude-fable-5-1 is a first-class fable id — role prompts kept, effort suffix split, 5 and 5-1 both route", () => {
     for (const id of ["claude-fable-5", "claude-fable-5-1"]) {
       for (const role of ["advisor", "leader", "worker"]) {
@@ -801,6 +814,16 @@ describe("engine: matching", () => {
     expect(matches({ pool: "FABLE_SPENT" }, ctx({ profile: "local_acct" }), w)).toBe(false);
   });
 
+  test("model patterns ignore [1m] on BOTH sides — a rule may spell it either way", () => {
+    for (const rule of ["claude-opus-5", "claude-opus-5[1m]"]) {
+      for (const asked of ["claude-opus-5", "claude-opus-5[1m]"]) {
+        expect(matches({ model: rule }, ctx({ model: asked }), w)).toBe(true);
+      }
+    }
+    expect(matches({ model: "claude-opus-5[1m]" }, ctx({ model: "claude-fable-5[1m]" }), w)).toBe(false);
+    expect(matches({ model: "claude-fable-*" }, ctx({ model: "claude-fable-5-1[1m]" }), w)).toBe(true);
+  });
+
   test("model patterns: exact and trailing-* prefix", () => {
     expect(matches({ model: "claude-opus-5" }, ctx({ model: "claude-opus-5" }), w)).toBe(true);
     expect(matches({ model: "claude-opus-5" }, ctx({ model: "claude-opus-5[200k]" }), w)).toBe(false);
@@ -855,6 +878,14 @@ describe("engine: model ids", () => {
     expect(splitEffort("gpt-5.6-sol-max")).toEqual({ model: "gpt-5.6-sol-max" });
     expect(splitEffort("sonnet-high")).toEqual({ model: "sonnet-high" });
     expect(splitEffort(undefined)).toEqual({});
+  });
+
+  test("the [1m] postfix sits outside the effort suffix and rides back onto the base", () => {
+    expect(splitEffort("claude-opus-5-xhigh[1m]")).toEqual({ model: "claude-opus-5[1m]", effort: "xhigh" });
+    expect(splitEffort("claude-fable-5-1-max[1m]")).toEqual({ model: "claude-fable-5-1[1m]", effort: "max" });
+    expect(splitEffort("claude-opus-5[1m]")).toEqual({ model: "claude-opus-5[1m]" });
+    // a stranger keeps its whole spelling, postfix included
+    expect(splitEffort("claude-sonnet-4-high[1m]")).toEqual({ model: "claude-sonnet-4-high[1m]" });
   });
 
   test("effort suffixes only peel off models we know — strangers keep their full id", () => {

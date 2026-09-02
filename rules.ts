@@ -54,7 +54,9 @@ export type Arm = {
  *   role     advisor | leader | worker
  *   cwd      "/abs/path" or "~/path" → cwd is that dir or below it;
  *            a bare word → substring of the cwd
- *   model    the requested model, exact; a trailing * matches a prefix
+ *   model    the requested model, exact; a trailing * matches a prefix. The
+ *            [1m] postfix is stripped from BOTH sides, so `claude-opus-5` and
+ *            `claude-opus-5[1m]` are one value whichever side spells it
  *   noModel  true → only when the caller passed no model at all
  *
  * "*" as a value means "this field is present, whatever its value".
@@ -125,8 +127,10 @@ export const defaults: Layer = {
 // A model never travels alone — it carries the system prompt written for it.
 //
 // EVERY claude id carries the [1m] postfix. Without it the session reports a
-// 200k context window. The router strips the postfix before matching, so a
-// route says `claude-opus-5` and both spellings reach it.
+// 200k context window. The postfix belongs to the harness, not to the id: it is
+// stripped from both the request and the rule before matching, so a route may
+// say `claude-opus-5` or `claude-opus-5[1m]` and either spelling of a request
+// reaches it — with an effort suffix in between too (claude-opus-5-max[1m]).
 
 // A role gets a WHOLE prompt, not an overlay — one file per case, written
 // somewhere else and only pointed at from here. So an arm is a (model, prompt)

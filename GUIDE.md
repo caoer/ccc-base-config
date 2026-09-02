@@ -28,8 +28,11 @@ Three steps, always in this order:
 Then two rules run over the result:
 
 - **Every claude id carries `[1m]`.** Without it the session reports a 200k
-  context window. The router strips the postfix before matching, so a route
-  says `claude-opus-5` and both spellings reach it.
+  context window. The postfix is the harness's, not the id's: matching strips
+  it from the request AND from the rule, so a route may say `claude-opus-5` or
+  `claude-opus-5[1m]` and either spelling of a request reaches it. An effort
+  suffix goes before the postfix — `claude-opus-5-max[1m]` is the id
+  `claude-opus-5[1m]` at effort `max`.
 - **A non-Anthropic `ANTHROPIC_BASE_URL` gets no fleet `--model` — none, no
   matter what.** The seat points at someone else's API, which serves its own
   ids, so anything we default — the route arm, or a saved `settings.json`
