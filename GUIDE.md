@@ -230,4 +230,19 @@ that safe:
   `pools.local.json`, which the installer never writes.
 - **A git checkout wins.** When `$UCC_HOME/config/.git` exists (this
   development machine), the installer leaves the directory alone entirely.
-  Sync the vendored copy from here in the same change that edits the rules.
+  Sync the vendored copy from here in the same change that edits the rules —
+  otherwise this machine has the fix and every installed machine does not.
+
+`sync-launch-config.sh` is that sync. It copies the bundle (and only the
+bundle — never `pools.local.json` or the scripts beside it), runs the suite
+where it lands, and commits just `worker/launch-config/` in the worker repo,
+which is a multi-agent working tree full of other agents' uncommitted work.
+
+```bash
+./sync-launch-config.sh --dry-run   # name what drifted, change nothing
+./sync-launch-config.sh             # copy, test, commit  (vendor config@<sha>)
+```
+
+It refuses while the bundle is uncommitted here, because the commit it writes
+there names this repo's sha. So the order is: edit, `bun test`, regenerate
+`matrix.golden.txt` if the rules moved, commit here, then sync.
