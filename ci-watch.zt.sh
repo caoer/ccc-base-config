@@ -143,22 +143,39 @@ if [ -n "${WOODPECKER_REPO_ID:-}" ]; then
   REPO=$WOODPECKER_REPO_ID
   echo "repo: $REPO (explicit \$WOODPECKER_REPO_ID)"
 else
-  slug=""
+  # A slug only means something for a remote pointing at the forge THIS server
+  # watches, so the forge host is what the search is keyed on — not remote order.
+  # Taking the first remote that merely parses answers about the wrong project
+  # whenever a repo is mirrored: ccc-pages' `origin` FETCHES from github.com and
+  # pushes to both forges, so remote order yields `caoer/ccc-pages` — a github
+  # owner this server has never heard of — while `caoer115/ccc-pages` sits right
+  # there on a push URL. Push URLs are searched for exactly that reason.
+  FORGE_HOST=${WOODPECKER_FORGE_HOST:-git.0xdao.app}
+  slug="" fallback=""
   for r in origin forge-nyc $(git remote 2>/dev/null); do
-    url=$(git remote get-url "$r" 2>/dev/null) || continue
-    # trailing owner/name(.git) from ssh://, git@host:path, or https:// forms
-    slug=$(printf '%s' "$url" | sed -E 's#\.git$##; s#.*[:/]([^/:]+/[^/]+)$#\1#')
-    [ -n "$slug" ] && [ "$slug" != "$url" ] && break
-    slug=""
+    for url in $(git remote get-url --all "$r" 2>/dev/null) \
+               $(git remote get-url --push --all "$r" 2>/dev/null); do
+      # trailing owner/name(.git) from ssh://, git@host:path, or https:// forms
+      s=$(printf '%s' "$url" | sed -E 's#\.git$##; s#.*[:/]([^/:]+/[^/]+)$#\1#')
+      [ -n "$s" ] && [ "$s" != "$url" ] || continue
+      case "$url" in *"$FORGE_HOST"*) slug=$s; break 2 ;; esac
+      # Keep the first parseable non-forge slug: with an unusual forge host the
+      # lookup below is still worth one try, and its refusal names the slug.
+      [ -n "$fallback" ] || fallback=$s
+    done
   done
+  [ -n "$slug" ] || slug=$fallback
   if [ -z "$slug" ]; then
     echo "ci-watch: cannot derive a repo from git remotes in $PWD." >&2
     echo "  Run from inside the repo, or set WOODPECKER_REPO_ID explicitly." >&2
     exit 2
   fi
+  # `|| true` on the substitution, and it is load-bearing: under `set -o
+  # pipefail` a 404 makes `curl -f` exit 22 and takes the whole script with it,
+  # so the caller saw a bare 22 instead of the diagnosis five lines down.
   REPO=$(curl -fsS -H "Authorization: Bearer $WOODPECKER_TOKEN" \
            "$WOODPECKER_SERVER/api/repos/lookup/$slug" 2>/dev/null \
-         | sed -n 's/.*"id":[[:space:]]*\([0-9]\{1,\}\).*/\1/p' | head -1)
+         | sed -n 's/.*"id":[[:space:]]*\([0-9]\{1,\}\).*/\1/p' | head -1) || true
   if [ -z "$REPO" ]; then
     echo "ci-watch: '$slug' is not a repo Woodpecker knows at $WOODPECKER_SERVER." >&2
     echo "  Set WOODPECKER_REPO_ID explicitly, or check: woodpecker-cli repo ls" >&2
