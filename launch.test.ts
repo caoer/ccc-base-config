@@ -23,7 +23,6 @@ import {
   validate,
   probe,
   fixedWorld,
-  splitEffort,
   siftArgv,
   withOneM,
   bareId,
@@ -216,20 +215,20 @@ describe("deployed selection (process contract, real repo)", () => {
     );
   });
 
-  test("an effort suffix under the [1m] postfix still splits — role prompt and effort survive both spellings", () => {
+  test("separate effort preserves the role prompt with or without the [1m] postfix", () => {
     for (const id of ["claude-opus-5", "claude-fable-5", "claude-fable-5-1"]) {
-      const bare = run(["--model", `${id}-xhigh`, "--role", "worker"]);
-      const oneM = run(["--model", `${id}-xhigh[1m]`, "--role", "worker"]);
+      const bare = run(["--model", id, "--effort", "low", "--role", "worker"]);
+      const oneM = run(["--model", `${id}[1m]`, "--effort", "low", "--role", "worker"]);
       expect(oneM.json!.argv).toEqual(bare.json!.argv);
       expect(modelOf(oneM)).toBe(`${id}[1m]`);
-      expect(oneM.json!.argv[oneM.json!.argv.indexOf("--effort") + 1]).toBe("xhigh");
+      expect(oneM.json!.argv[oneM.json!.argv.indexOf("--effort") + 1]).toBe("low");
       expect(promptOf(oneM)).toBe(
         `${id.startsWith("claude-opus") ? "opus-5" : "fable-5"}-ownership.worker.md`,
       );
     }
   });
 
-  test("claude-fable-5-1 is a first-class fable id — role prompts kept, effort suffix split, 5 and 5-1 both route", () => {
+  test("claude-fable-5-1 is a first-class fable id — role prompts kept with independent effort, 5 and 5-1 both route", () => {
     for (const id of ["claude-fable-5", "claude-fable-5-1"]) {
       for (const role of ["advisor", "leader", "worker"]) {
         const r = run(["--model", id, "--role", role]);
@@ -240,15 +239,15 @@ describe("deployed selection (process contract, real repo)", () => {
       expect(modelOf(bare)).toBe(`${id}[1m]`);
       expect(promptOf(bare)).toBe("fable-5-ownership.md");
     }
-    // the effort suffix peels off the 5-1 id like any known claude id
-    const r = run(["--model", "claude-fable-5-1-xhigh", "--role", "worker"]);
+    // effort is a separate request for either model id
+    const r = run(["--model", "claude-fable-5-1", "--effort", "xhigh", "--role", "worker"]);
     expect(modelOf(r)).toBe("claude-fable-5-1[1m]");
     expect(r.json!.argv[r.json!.argv.indexOf("--effort") + 1]).toBe("xhigh");
     expect(promptOf(r)).toBe("fable-5-ownership.worker.md");
   });
 
-  test("an effort suffix splits off and beats the arm's effort", () => {
-    const r = run(["--model", "claude-opus-5-low"]);
+  test("an explicit effort flag beats the arm's effort", () => {
+    const r = run(["--model", "claude-opus-5", "--effort", "low"]);
     expect(modelOf(r)).toBe("claude-opus-5[1m]");
     expect(r.json!.argv[r.json!.argv.indexOf("--effort") + 1]).toBe("low");
   });
@@ -305,8 +304,8 @@ describe("deployed selection (process contract, real repo)", () => {
     }
   });
 
-  test("an effort suffix on the pinned id becomes the effort — endpoint effort is expressible", () => {
-    const r = run(["--profile", "kimi-k3-moonshot", "--model", "k3-max"]);
+  test("a pinned endpoint accepts effort separately from its model id", () => {
+    const r = run(["--profile", "kimi-k3-moonshot", "--model", "k3", "--effort", "max"]);
     expect(r.exitCode).toBe(0);
     expect(modelOf(r)).toBe("k3[1m]");
     const i = r.json!.argv.indexOf("--effort");
@@ -442,6 +441,22 @@ describe("forwarded argv (the wrapper passes its whole command line)", () => {
     expect(modelOf(r)).toBe("claude-fable-5[1m]");
   });
 
+  test("raw effort flags are independent, last-wins and never emitted twice", () => {
+    for (const argv of [
+      ["--model", "claude-opus-5", "--effort", "low"],
+      ["--model=claude-opus-5", "--effort=low"],
+      ["--effort", "medium", "--effort=low"],
+      ["--resume", "session-id", "--effort", "low"],
+    ]) {
+      const r = withArgv(argv);
+      expect(r.exitCode).toBe(0);
+      expect(r.json!.argv.some((a) => a === "--effort" || a.startsWith("--effort="))).toBe(false);
+      expect(r.json!.trace).toContain("explicit effort: low");
+      if (argv.includes("--resume")) expect(r.json!.argv).not.toContain("--model");
+      else expect(modelOf(r)).toBe("claude-opus-5[1m]");
+    }
+  });
+
   test("a resume launch keeps the session's model and effort but gets its prompt", () => {
     const r = withArgv(["-c"]);
     expect(r.exitCode).toBe(0);
@@ -479,6 +494,10 @@ describe("forwarded argv (the wrapper passes its whole command line)", () => {
   });
 
   test("siftArgv: extraction, stripping, resume detection", () => {
+    expect(siftArgv(["--model", "m", "--effort", "high", "--effort=low", "prompt"])).toEqual({
+      model: "m", effort: "low", resume: false,
+      argv: ["--effort", "high", "--effort=low", "prompt"],
+    });
     expect(siftArgv(["--model", "m1", "a", "--model=m2"])).toEqual({
       model: "m2",
       resume: false,
@@ -519,7 +538,7 @@ describe("runtime portability (the wrappers use node, not bun)", () => {
   });
 
   test("node and bun render byte-identical argv", () => {
-    for (const args of [[], ["--role", "worker"], ["--role", "advisor"], ["--model", "claude-opus-5-low"]]) {
+    for (const args of [[], ["--role", "worker"], ["--role", "advisor"], ["--model", "claude-opus-5", "--effort", "low"]]) {
       const viaNode = runWith(SHARED_NODE, args);
       expect(viaNode.exitCode).toBe(0);
       expect(viaNode.json).not.toBeNull();
@@ -870,35 +889,44 @@ describe("engine: model ids", () => {
     expect(bareId("claude-opus-4-8[200k]")).toBe("claude-opus-4-8[200k]");
   });
 
-  test("effort suffixes split off claude ids only", () => {
-    expect(splitEffort("claude-opus-5-xhigh")).toEqual({ model: "claude-opus-5", effort: "xhigh" });
-    expect(splitEffort("claude-opus-5-low")).toEqual({ model: "claude-opus-5", effort: "low" });
-    expect(splitEffort("claude-opus-5")).toEqual({ model: "claude-opus-5" });
-    // an endpoint id is opaque — splitting would invent a model
-    expect(splitEffort("gpt-5.6-sol-max")).toEqual({ model: "gpt-5.6-sol-max" });
-    expect(splitEffort("sonnet-high")).toEqual({ model: "sonnet-high" });
-    expect(splitEffort(undefined)).toEqual({});
+  test("model ids stay opaque even when they end in an effort word", () => {
+    for (const model of ["claude-opus-5-low", "claude-fable-5-1-max[1m]", "claude-opus-5-preview-low", "gpt-5.6-sol-max", "sonnet-high"]) {
+      const plan = resolve({ harness: "claude", model }, fixedWorld());
+      expect(plan.config.model).toBe(withOneM(model));
+      expect(plan.config.effort).toBe(plan.arm ? "xhigh" : undefined);
+    }
   });
 
-  test("the [1m] postfix sits outside the effort suffix and rides back onto the base", () => {
-    expect(splitEffort("claude-opus-5-xhigh[1m]")).toEqual({ model: "claude-opus-5[1m]", effort: "xhigh" });
-    expect(splitEffort("claude-fable-5-1-max[1m]")).toEqual({ model: "claude-fable-5-1[1m]", effort: "max" });
-    expect(splitEffort("claude-opus-5[1m]")).toEqual({ model: "claude-opus-5[1m]" });
-    // a stranger keeps its whole spelling, postfix included
-    expect(splitEffort("claude-sonnet-4-high[1m]")).toEqual({ model: "claude-sonnet-4-high[1m]" });
+  test("a pinned endpoint refuses an effort appended to its model id", () => {
+    for (const model of ["k3-max", "k3-max[1m]"]) {
+      const r = run(["--profile", "kimi-k3-moonshot", "--model", model]);
+      expect(r.exitCode).toBe(2);
+      expect(r.stdout).toBe("");
+      expect(r.stderr).toContain("--effort");
+      expect(r.stderr).not.toContain("--model k3-<");
+    }
   });
 
-  test("effort suffixes only peel off models we know — strangers keep their full id", () => {
-    // ends in -high but the base is not an arm/route model → leave alone
-    expect(splitEffort("claude-sonnet-4-high")).toEqual({ model: "claude-sonnet-4-high" });
-    expect(splitEffort("claude-haiku-4-5-max")).toEqual({ model: "claude-haiku-4-5-max" });
-    expect(splitEffort("claude-max")).toEqual({ model: "claude-max" });
-    // a known base (or wildcard route match) still peels
-    expect(splitEffort("claude-opus-4-low")).toEqual({ model: "claude-opus-4", effort: "low" });
-    expect(splitEffort("claude-opus-5-preview-xhigh")).toEqual({
-      model: "claude-opus-5-preview",
-      effort: "xhigh",
-    });
+  test("effort can be selected without a model through CLI or JSON", () => {
+    for (const args of [["--effort=low"], [JSON.stringify({ harness: "claude", effort: "low" })]]) {
+      const r = run(args);
+      expect(r.exitCode).toBe(0);
+      expect(modelOf(r)).toBe("claude-opus-5[1m]");
+      expect(r.json!.argv[r.json!.argv.indexOf("--effort") + 1]).toBe("low");
+    }
+  });
+
+  test("JSON model and effort fields are independent", () => {
+    const r = run([JSON.stringify({ harness: "claude", model: "claude-fable-5-1", effort: "medium", role: "worker" })]);
+    expect(modelOf(r)).toBe("claude-fable-5-1[1m]");
+    expect(promptOf(r)).toBe("fable-5-ownership.worker.md");
+    expect(r.json!.argv[r.json!.argv.indexOf("--effort") + 1]).toBe("medium");
+  });
+
+  test("an explicit effort on resume preserves the session's model", () => {
+    const r = run([JSON.stringify({ harness: "claude", effort: "low", argv: ["--resume", "session-id"] })]);
+    expect(r.json!.argv).not.toContain("--model");
+    expect(r.json!.argv[r.json!.argv.indexOf("--effort") + 1]).toBe("low");
   });
 
   test("an unknown model never forces --effort, even when its id ends like an effort", () => {
@@ -1023,8 +1051,8 @@ describe("engine: precedence and emit", () => {
     expect(plan.config.append).toEqual([]);
   });
 
-  test("an explicit effort suffix beats every rule", () => {
-    expect(resolve({ harness: "claude", role: "worker", model: "claude-opus-5-low" }, w).config.effort).toBe("low");
+  test("an explicit effort field beats every rule", () => {
+    expect(resolve({ harness: "claude", role: "worker", model: "claude-opus-5", effort: "low" }, w).config.effort).toBe("low");
   });
 
   // The layer this pins was disarmed to [""] for 8 days with no test to say so.

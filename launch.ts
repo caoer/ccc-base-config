@@ -60,8 +60,10 @@ const ROOT = import.meta.dirname;
 // ─── Context: what the launcher tells us ────────────────────────────────────
 export type Ctx = {
   harness: "claude" | "codex";
-  /** requested model — a real id, optionally with an effort suffix */
+  /** requested model — a real id; reasoning effort is a separate field */
   model?: string;
+  /** explicit reasoning effort, independent of the model id */
+  effort?: string;
   /** ucc profile (launcher basename `ucc-<p>`, or $UCC_PROFILE) */
   profile?: string;
   /** the launch cwd (the wire name for this is `project`) */
@@ -376,11 +378,13 @@ export const bareId = (model: string): string =>
  * it: the last --model becomes the requested model (and is REMOVED from the
  * clash-detection argv, so the normalized spelling we emit replaces the raw
  * one via the model_matched dance), and a resume/continue flag marks the
- * launch as resuming. Everything else stays in argv untouched — emitClaude's
+ * launch as resuming. Effort is read separately and stays in argv so it is
+ * forwarded exactly once. Everything else stays untouched — emitClaude's
  * family scan is what keeps the rules out of the caller's way.
  */
-export function siftArgv(raw: string[]): { model?: string; resume: boolean; argv: string[] } {
+export function siftArgv(raw: string[]): { model?: string; effort?: string; resume: boolean; argv: string[] } {
   let model: string | undefined;
+  let effort: string | undefined;
   let resume = false;
   const argv: string[] = [];
   for (let i = 0; i < raw.length; i++) {
@@ -393,58 +397,19 @@ export function siftArgv(raw: string[]): { model?: string; resume: boolean; argv
       model = a.slice("--model=".length);
       continue;
     }
+    if (a === "--effort" && i + 1 < raw.length) {
+      effort = raw[++i];
+      argv.push(a, effort);
+      continue;
+    }
+    if (a.startsWith("--effort=")) effort = a.slice("--effort=".length);
     if (a === "-r" || a === "--resume" || a === "-c" || a === "--continue" ||
         a.startsWith("--resume=") || a.startsWith("--continue=")) {
       resume = true;
     }
     argv.push(a);
   }
-  return { model, resume, argv };
-}
-
-/**
- * True when `model` is one rules.ts knows: an arm's id, or a route's model
- * pattern (exact or trailing-*). Used so an effort-looking suffix is only
- * peeled off ids we can actually route — never off a stranger.
- */
-function isKnownModelBase(model: string): boolean {
-  const bare = bareId(model);
-  for (const a of Object.values(arms)) {
-    if (bareId(a.model) === bare) return true;
-  }
-  for (const r of routes) {
-    if (!r.when?.model) continue;
-    if (matchModel(list(r.when.model), bare)) return true;
-  }
-  return false;
-}
-
-/**
- * claude-opus-4-8-xhigh → { model: "claude-opus-4-8", effort: "xhigh" }
- * claude-opus-4-8-xhigh[1m] → { model: "claude-opus-4-8[1m]", effort: "xhigh" }
- *
- * The suffix sits on the id, the [1m] postfix sits after it, so the postfix is
- * peeled off first and put back on the base — otherwise the whole spelling
- * routes as an unknown variant and the launch loses its role prompt.
- *
- * Only claude ids carry this convention, and only when the base id is one we
- * know (an arm or a route model pattern). An endpoint id is opaque —
- * splitting `gpt-5.6-sol-max` would invent a model that does not exist. An
- * unknown claude id that merely ends in `-high`/`-max`/… is left whole so we
- * do not invent an `--effort` for a stranger (the session keeps its own).
- */
-export function splitEffort(model?: string): { model?: string; effort?: string } {
-  if (!model) return {};
-  if (!isClaude(model)) return { model };
-  const bare = bareId(model);
-  const postfix = model.slice(bare.length);
-  for (const e of EFFORTS) {
-    if (!bare.endsWith(`-${e}`)) continue;
-    const base = bare.slice(0, -(e.length + 1));
-    if (!isKnownModelBase(base)) return { model };
-    return { model: base + postfix, effort: e };
-  }
-  return { model };
+  return { model, resume, argv, ...(effort !== undefined ? { effort } : {}) };
 }
 
 function applyLayer(c: Config, l: Layer, ctx: Ctx, world: World, trace: string[]): void {
@@ -502,16 +467,12 @@ export function resolve(ctx: Ctx, world: World): Plan {
   const warnings: string[] = [];
   let refusal: string | undefined;
 
-  const requested = splitEffort(ctx.model);
-  let explicitEffort = requested.effort;
+  const explicitEffort = siftArgv(ctx.argv ?? []).effort ?? ctx.effort;
   // What we would emit for an explicit request, and what the router matches on.
-  const asked = requested.model ? withOneM(requested.model) : undefined;
-  const c: Ctx = { ...ctx, model: requested.model ? bareId(requested.model) : undefined };
-  if (requested.effort) {
-    trace.push(`model ${ctx.model}: effort suffix → ${requested.model} + effort ${requested.effort}`);
-  }
-  if (asked && asked !== requested.model) {
-    trace.push(`model ${requested.model}: normalized to ${asked} (a claude id without [1m] reports 200k)`);
+  const asked = ctx.model ? withOneM(ctx.model) : undefined;
+  const c: Ctx = { ...ctx, model: ctx.model ? bareId(ctx.model) : undefined };
+  if (asked && asked !== ctx.model) {
+    trace.push(`model ${ctx.model}: normalized to ${asked} (a claude id without [1m] reports 200k)`);
   }
 
   const config: Config = {
@@ -544,28 +505,18 @@ export function resolve(ctx: Ctx, world: World): Plan {
     // survives; the arm then supplies only the prompt and the effort.
     let armNote = "";
     if (asked !== undefined && a.pin) {
-      // A pinned arm serves exactly ONE id. A request for that id — bare, or
-      // carrying an effort suffix (k3-max) — is honored, the suffix becoming
-      // the effort. Any OTHER id is REFUSED: silently replacing an explicit
-      // request was the launcher's worst fault (zt-queue #17, fail LOUD or
-      // obey), and its endpoint cannot serve the requested id anyway.
+      // A pinned arm serves exactly ONE id. Model ids are opaque: effort
+      // comes from its own field/flag, never from a suffix on the pin.
+      // Any other id is refused rather than silently replacing the request.
       const pin = bareId(a.model);
-      let base = bareId(asked);
-      for (const e of EFFORTS) {
-        if (base === `${pin}-${e}`) {
-          base = pin;
-          explicitEffort = e;
-          trace.push(`model ${asked}: effort suffix on the pinned id → effort ${e}`);
-          break;
-        }
-      }
+      const base = bareId(asked);
       if (base === pin) {
         armNote = " (pinned — matches request)";
       } else {
         refusal =
           `--model ${ctx.model} cannot be served: profile '${c.profile ?? "?"}' routes to pinned arm ` +
           `'${arm}', whose endpoint serves only ${a.model}. ` +
-          `Fix: drop --model to accept ${a.model} (request effort as --model ${pin}-<low|medium|high|xhigh|max>), ` +
+          `Fix: drop --model to accept ${a.model} (request reasoning effort separately with --effort <low|medium|high|xhigh|max>), ` +
           `or launch from a profile that serves ${asked} — for claude ids pick a claude-account profile ` +
           `(e.g. env -u UCC_PROFILE ucc-auto, or a ucc-<claude-profile> wrapper).`;
         warnings.push(`REFUSED: ${refusal}`);
@@ -609,7 +560,7 @@ export function resolve(ctx: Ctx, world: World): Plan {
     // The arm's effort belongs to the fleet model we just dropped. Forcing it
     // onto an endpoint model the user (or ANTHROPIC_MODEL) picked makes the
     // TUI/settings effortLevel look like it "won't save". Layers (minimax)
-    // may still set effort after this. An explicit effort suffix still wins
+    // may still set effort after this. An explicit effort field/flag wins
     // later via explicitEffort.
     if (config.effort !== undefined && !explicitEffort) {
       trace.push(
@@ -638,15 +589,18 @@ export function resolve(ctx: Ctx, world: World): Plan {
   // The resume rule: a resumed session keeps its own model and effort —
   // emitting an arm's would silently switch a session mid-conversation. An
   // EXPLICITLY requested model still wins: asking is consent to switch, and
-  // emitting it normalized beats letting a raw selection id reach the CLI.
+  // the model keeps its normal [1m] handling independently of effort.
   if (c.resume && !asked && (config.model !== undefined || config.effort !== undefined)) {
     trace.push("resume/continue: the session keeps its own model and effort — dropping ours");
     config.model = undefined;
     config.effort = undefined;
   }
 
-  // An explicit effort suffix on the requested model beats every rule.
-  if (explicitEffort) config.effort = explicitEffort;
+  // Explicit effort is independent of model selection, including on resume.
+  if (explicitEffort !== undefined) {
+    config.effort = explicitEffort;
+    trace.push(`explicit effort: ${explicitEffort}`);
+  }
 
   // A role nobody routes on is a typo: it lands on the roleless arm and the
   // agent silently never learns what it is. Say so.
@@ -1103,6 +1057,7 @@ function parseArgs(args: string[]): Parsed {
   const ctx: Ctx = {
     harness,
     model: pick("model"),
+    effort: pick("effort"),
     profile: pick("profile"),
     // `project` is the wire name both launchers already send
     cwd: pick("cwd") ?? pick("project"),

@@ -19,20 +19,23 @@ snapshot of the whole config), `matrix-viewer.html` (the debug page template),
 
 Three steps, always in this order:
 
-1. **defaults** — effort `xhigh`, verbose off, and the fleet-wide
+1. **defaults** — no effort override, verbose off, and the fleet-wide
    `disallowedTools` list (an array; every launch drops those tools).
 2. **the router** — the first matching route in `routes` wins and names an
    **arm**. An arm is a `(model, prompt)` pair.
 3. **layers** — every matching layer applies, in order, on top.
 
-Then two rules run over the result:
+Then these rules run over the result:
 
 - **Every claude id carries `[1m]`.** Without it the session reports a 200k
   context window. The postfix is the harness's, not the id's: matching strips
   it from the request AND from the rule, so a route may say `claude-opus-5` or
-  `claude-opus-5[1m]` and either spelling of a request reaches it. An effort
-  suffix goes before the postfix — `claude-opus-5-max[1m]` is the id
-  `claude-opus-5[1m]` at effort `max`.
+  `claude-opus-5[1m]` and either spelling of a request reaches it.
+- **Model ID and reasoning effort are independent.** Use
+  `--model claude-opus-5[1m] --effort max`, or JSON fields
+  `{"model":"claude-opus-5[1m]","effort":"max"}`. Effort can be set without
+  a model and overrides arm/layer defaults. Model names are never split to
+  infer effort; pass `--effort` explicitly.
 - **A non-Anthropic `ANTHROPIC_BASE_URL` gets no fleet `--model` — none, no
   matter what.** The seat points at someone else's API, which serves its own
   ids, so anything we default — the route arm, or a saved `settings.json`
@@ -155,8 +158,10 @@ reroutes only its advisor launches to opus-5.
 means this id is always sent. An explicit `--model` naming a *different* id is
 REFUSED (exit 2) — the endpoint cannot serve it, and silently replacing an
 explicit request is the launcher fault the refusal exists to kill. A request
-for the pinned id itself is honored, and an effort suffix on it (`k3-max`)
-becomes the effort.
+for the pinned id itself is honored. Set reasoning effort with its separate
+flag, e.g. `--model k3 --effort max`, or keep the pinned model by passing
+only `--effort max`. A model ID with an appended effort is a different ID
+and is refused by the pin.
 
 ## Who calls this
 
@@ -165,8 +170,8 @@ Two callers, one contract. Both pass a JSON object and read back
 
 - **`ucc-<profile>`** (the bash wrapper) sends `harness`, `project`, `profile`
   and its whole raw command line as `argv`. The engine derives the requested
-  model and the resume flag from `argv`, and never re-emits a flag family the
-  caller already used — that is what makes `--system-prompt "."` on the
+  model, effort and the resume flag from `argv`, and never re-emits a flag
+  family the caller already used — that is what makes `--system-prompt "."` on the
   command line suppress the arm prompt instead of clashing with it. It never
   sends `role`. It runs the shared node.
 - **`ccc-tmux spawn-agent`** sends `harness`, `project`, `profile`, `model`,
@@ -178,6 +183,7 @@ Two callers, one contract. Both pass a JSON object and read back
 On resume (`-r`/`--resume`/`-c`/`--continue` in `argv`) the engine emits no
 `--model` and no `--effort` — the session keeps its own — but still emits the
 prompt and mcp config. An explicitly requested model on resume is honored.
+An explicit effort changes only effort when no model is requested.
 
 `model_matched` tells the caller whether our argv carries a real `--model`, so
 it knows to drop its own. When we emit none — an endpoint profile — the

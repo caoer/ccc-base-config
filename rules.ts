@@ -130,7 +130,7 @@ export const defaults: Layer = {
 // 200k context window. The postfix belongs to the harness, not to the id: it is
 // stripped from both the request and the rule before matching, so a route may
 // say `claude-opus-5` or `claude-opus-5[1m]` and either spelling of a request
-// reaches it — with an effort suffix in between too (claude-opus-5-max[1m]).
+// reaches it. Reasoning effort is a separate field or --effort flag.
 
 // A role gets a WHOLE prompt, not an overlay — one file per case, written
 // somewhere else and only pointed at from here. So an arm is a (model, prompt)
@@ -255,8 +255,8 @@ export const routes: Route[] = [
   { when: { profile: "deepseek-ollama", role: "worker" }, use: "deepseek-v4-flash:cloud:worker" },
   { when: { profile: "deepseek-ollama" }, use: "deepseek-v4-flash:cloud", why: "ollama endpoint" },
 
-  // 2. the caller named a model. An effort suffix (-low … -max) and the [1m]
-  //    postfix are both stripped before these are matched. Role first: asking
+  // 2. the caller named a model. Only the [1m] postfix is stripped before
+  //    matching; effort is independent of the id. Role first: asking
   //    for a model must not cost an agent its role prompt.
   { when: { model: "claude-opus-5", role: "advisor" }, use: "opus-5:advisor" },
   { when: { model: "claude-opus-5", role: "leader" }, use: "opus-5:leader" },
