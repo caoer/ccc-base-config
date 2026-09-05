@@ -1,23 +1,23 @@
 # Ownership prompt — notes for the next cut
 
-`fable-5-ownership.md` is the base. The other seven ownership files are that base plus a role tail; `launch.test.ts` ("ownership variants are ONE base") pins the splice anchor to the base's last line and requires the opus-5 set to be byte-identical. The same base serves every arm that points at it in `rules.ts`, Anthropic and endpoint models alike.
+`fable-5-ownership.md` and `opus-5-ownership.md` are separate model-specific bases. Each model's three role files contain its complete base followed by one `# Your role` tail; `launch.test.ts` checks that contract. Opus 5 carries the compact communication limits and task-scoped security boundary.
 
-Rebuild after editing the base:
+Rebuild after editing a model's base:
 
 ```bash
 cd $UCC_HOME/config
+model=opus-5   # or fable-5
 for role in worker leader advisor; do
-  para=$(awk '/^# Your role$/{f=1;next} f&&NF{print;exit}' prompts/fable-5-ownership.$role.md)
-  { cat prompts/fable-5-ownership.md; printf '\n# Your role\n\n%s\n' "$para"; } > prompts/fable-5-ownership.$role.md
-  cp prompts/fable-5-ownership.$role.md prompts/opus-5-ownership.$role.md
-done; cp prompts/fable-5-ownership.md prompts/opus-5-ownership.md
+  para=$(awk '/^# Your role$/{f=1;next} f&&NF{print;exit}' prompts/$model-ownership.$role.md)
+  { cat prompts/$model-ownership.md; printf '\n# Your role\n\n%s\n' "$para"; } > prompts/$model-ownership.$role.md
+done
 bun test launch.test.ts
-ccc-statusd session token-count prompts/fable-5-ownership.md --json   # real tokenizer; never chars/4
+ccc-statusd session token-count prompts/$model-ownership.md --json   # real tokenizer; never chars/4
 ```
 
 Per-section cost: split the base on `^# ` and pipe each piece through `token-count -`.
 
-## Next cuts, heaviest section first
+## Fable next cuts, heaviest section first
 
 | Section | Next cut | What the text protects |
 |---|---|---|
@@ -29,7 +29,7 @@ Per-section cost: split the base on `^# ` and pipe each piece through `token-cou
 | Delegation | drop the examples clause | spawn-and-block; re-spawning instead of continuing a running agent |
 | Memory | drop the section (the harness still loads MEMORY.md; only the write instruction goes) | cross-session lessons |
 
-## Held out of the prompt by design
+## Held out of the Fable prompt by design
 
 Re-add any of these only against an observed failure, and as a sentence in the section that owns the behavior, not as a list.
 

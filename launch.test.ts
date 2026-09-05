@@ -142,7 +142,7 @@ describe("deployed selection (process contract, real repo)", () => {
       expect(prompt).toContain("# Harness");
       // the Bash-timeout policy, in either prompt generation's phrasing —
       // the shared invariant is "lapsed ≠ interrupted, never re-run"
-      expect(prompt).toContain("never re-run it");
+      expect(prompt).toMatch(/never re-run it|do not restart it/);
     }
   });
 
@@ -169,7 +169,7 @@ describe("deployed selection (process contract, real repo)", () => {
       expect(prompt).toContain("# Harness");
       expect(prompt).toContain(`You are ${role === "advisor" ? "an" : "a"} **${role}**`);
       // the arm's own doctrine is in the same file, not a separate flag
-      expect(prompt).toContain("helps users with software engineering tasks");
+      expect(prompt).toContain("software engineering");
       // the skill-preload directive is gone: config no longer writes prompt text
       expect(prompt).not.toContain("<session-startup>");
     }
@@ -181,19 +181,17 @@ describe("deployed selection (process contract, real repo)", () => {
     expect(new Set(files).size).toBe(4);
   });
 
-  test("ownership variants are ONE base — role block spliced before the tone block, fable/opus pairs identical", () => {
+  test("ownership variants carry their model's complete base plus one role tail", () => {
     const read = (f: string) => readFileSync(join(import.meta.dir, "prompts", f), "utf8");
-    const anchor =
-      "None of this restraint applies to thinking blocks.\n";
-    const base = read("fable-5-ownership.md");
-    expect(read("opus-5-ownership.md")).toBe(base);
-    const head = base.slice(0, base.indexOf(anchor) + anchor.length);
-    for (const role of ["advisor", "leader", "worker"]) {
-      const variant = read(`fable-5-ownership.${role}.md`);
-      // shared body byte-identical to the base; only the role tail differs
-      expect(variant.startsWith(head)).toBe(true);
-      expect(variant).toContain(`**${role}**`);
-      expect(read(`opus-5-ownership.${role}.md`)).toBe(variant);
+    expect(read("opus-5-ownership.md")).not.toBe(read("fable-5-ownership.md"));
+    for (const model of ["fable-5", "opus-5"]) {
+      const base = read(`${model}-ownership.md`);
+      for (const role of ["advisor", "leader", "worker"]) {
+        const variant = read(`${model}-ownership.${role}.md`);
+        expect(variant.startsWith(`${base}\n# Your role\n\n`)).toBe(true);
+        expect(variant.split("# Your role")).toHaveLength(2);
+        expect(variant.slice(base.length)).toContain(`**${role}**`);
+      }
     }
   });
 

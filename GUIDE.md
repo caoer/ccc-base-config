@@ -252,3 +252,28 @@ which is a multi-agent working tree full of other agents' uncommitted work.
 It refuses while the bundle is uncommitted here, because the commit it writes
 there names this repo's sha. So the order is: edit, `bun test`, regenerate
 `matrix.golden.txt` if the rules moved, commit here, then sync.
+
+### Update launch config independently
+
+Publish committed prompt and routing changes after the sync:
+
+```bash
+cd /path/to/ccc-statusd/worker
+npm run upload:config
+```
+
+This uploads only `templates/launch-config.tar.gz` to R2, using the same source
+and object as a full release. It does not build binaries or redeploy the Worker.
+The bundle is packed from the committed `worker/launch-config/` tree.
+
+On an installed machine:
+
+```bash
+ucc-cli config update
+```
+
+The command reads the existing installer credentials and updates launch rules
+and prompts. It preserves `pools.local.json` and git checkouts. New launches
+use the updated files; running sessions keep their existing prompt. The full
+installer uses this same update path. A machine needs a UCC version carrying
+this command once; subsequent config changes need only upload and update.
