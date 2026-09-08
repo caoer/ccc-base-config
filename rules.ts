@@ -157,10 +157,12 @@ export const arms: Record<string, Arm> = {
   // ── endpoints that speak their own model ids, and have no claude-opus-5.
   //    They pin: an explicitly requested claude id would be rejected upstream.
   //    They run the fable prompts — same files, different model. ──
-  "gpt-5.6-sol": { model: "gpt-5.6-sol[1m]", prompt: "prompts/fable-5-ownership.md", effort: "xhigh", pin: true },
-  "gpt-5.6-sol:advisor": { model: "gpt-5.6-sol[1m]", prompt: "prompts/fable-5-ownership.advisor.md", effort: "xhigh", pin: true },
-  "gpt-5.6-sol:leader": { model: "gpt-5.6-sol[1m]", prompt: "prompts/fable-5-ownership.leader.md", effort: "xhigh", pin: true },
-  "gpt-5.6-sol:worker": { model: "gpt-5.6-sol[1m]", prompt: "prompts/fable-5-ownership.worker.md", effort: "xhigh", pin: true },
+  //    gpt-6-astra runs at high: its effort ladder goes low…ultra and high is
+  //    the codex default reasoning tier for it.
+  "gpt-6-astra": { model: "gpt-6-astra[1m]", prompt: "prompts/fable-5-ownership.md", effort: "high", pin: true },
+  "gpt-6-astra:advisor": { model: "gpt-6-astra[1m]", prompt: "prompts/fable-5-ownership.advisor.md", effort: "high", pin: true },
+  "gpt-6-astra:leader": { model: "gpt-6-astra[1m]", prompt: "prompts/fable-5-ownership.leader.md", effort: "high", pin: true },
+  "gpt-6-astra:worker": { model: "gpt-6-astra[1m]", prompt: "prompts/fable-5-ownership.worker.md", effort: "high", pin: true },
 
   k3: { model: "k3[1m]", prompt: "prompts/fable-5-ownership.md", effort: "xhigh", pin: true },
   "k3:advisor": { model: "k3[1m]", prompt: "prompts/fable-5-ownership.advisor.md", effort: "xhigh", pin: true },
@@ -235,10 +237,10 @@ export const pools: Record<string, string[]> = {
 
 export const routes: Route[] = [
   // 1. endpoint profiles — role first, then the roleless launch
-  { when: { profile: "codex", role: "advisor" }, use: "gpt-5.6-sol:advisor" },
-  { when: { profile: "codex", role: "leader" }, use: "gpt-5.6-sol:leader" },
-  { when: { profile: "codex", role: "worker" }, use: "gpt-5.6-sol:worker" },
-  { when: { profile: "codex" }, use: "gpt-5.6-sol", why: "codex endpoint" },
+  { when: { profile: "codex", role: "advisor" }, use: "gpt-6-astra:advisor" },
+  { when: { profile: "codex", role: "leader" }, use: "gpt-6-astra:leader" },
+  { when: { profile: "codex", role: "worker" }, use: "gpt-6-astra:worker" },
+  { when: { profile: "codex" }, use: "gpt-6-astra", why: "codex endpoint" },
 
   { when: { profile: "kimi-k3-moonshot", role: "advisor" }, use: "k3:advisor" },
   { when: { profile: "kimi-k3-moonshot", role: "leader" }, use: "k3:leader" },

@@ -70,7 +70,7 @@ nothing of their own.
 | worker | `claude-opus-5[1m]` | `opus-5-ownership.worker.md` |
 | no role | `claude-opus-5[1m]` | `opus-5-ownership.md` |
 | `--model claude-fable-5` or `claude-fable-5-1`, any role | the id as asked, `[1m]` added | the fable prompt for that role |
-| `codex` / `grok` / `kimi-k3-moonshot` | their own pinned id | the fable prompts |
+| `codex` (`gpt-6-astra`, effort high) / `grok` / `kimi-k3-moonshot` | their own pinned id | the fable prompts |
 | the other 27 endpoint profiles | none — `ANTHROPIC_MODEL` applies | the opus-5 prompts |
 
 ## See what renders

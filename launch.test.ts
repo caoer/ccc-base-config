@@ -277,7 +277,7 @@ describe("deployed selection (process contract, real repo)", () => {
   });
 
   test("endpoint profiles keep their own ids and have no claude-opus-5", () => {
-    expect(modelOf(run(["--profile", "codex"]))).toBe("gpt-5.6-sol[1m]");
+    expect(modelOf(run(["--profile", "codex"]))).toBe("gpt-6-astra[1m]");
     expect(modelOf(run(["--profile", "grok"]))).toBe("grok-4.6[1m]");
     expect(modelOf(run(["--profile", "kimi-k3-moonshot"]))).toBe("k3[1m]");
   });
@@ -289,7 +289,7 @@ describe("deployed selection (process contract, real repo)", () => {
     expect(r.exitCode).toBe(2);
     expect(r.stdout).toBe(""); // nothing to splice — the launch must not proceed
     expect(r.stderr).toContain("REFUSED");
-    expect(r.stderr).toContain("gpt-5.6-sol[1m]"); // names what it serves
+    expect(r.stderr).toContain("gpt-6-astra[1m]"); // names what it serves
     expect(r.stderr).toContain("drop --model"); // and teaches the way out
   });
 
@@ -658,7 +658,7 @@ describe("third-party endpoints (ANTHROPIC_BASE_URL)", () => {
 
   test("a pinned arm keeps its id — pinning says we know this endpoint", () => {
     for (const [profile, model] of [
-      ["codex", "gpt-5.6-sol[1m]"],
+      ["codex", "gpt-6-astra[1m]"],
       ["grok", "grok-4.6[1m]"],
       ["kimi-k3-moonshot", "k3[1m]"],
     ] as const) {
@@ -669,7 +669,7 @@ describe("third-party endpoints (ANTHROPIC_BASE_URL)", () => {
   test("codex would otherwise have no model at all — its .env pins none", () => {
     // the reason `pin` is the exception rather than a blanket drop
     const plan = resolve({ harness: "claude", profile: "codex" }, endpoint());
-    expect(plan.config.model).toBe("gpt-5.6-sol[1m]");
+    expect(plan.config.model).toBe("gpt-6-astra[1m]");
   });
 
   test("a claude account is untouched — no base url, no rule", () => {
@@ -1063,7 +1063,7 @@ describe("engine: precedence and emit", () => {
   });
 
   test("the first matching route wins and stops the search", () => {
-    expect(resolve({ harness: "claude", profile: "codex", role: "worker" }, w).arm).toBe("gpt-5.6-sol:worker");
+    expect(resolve({ harness: "claude", profile: "codex", role: "worker" }, w).arm).toBe("gpt-6-astra:worker");
   });
 
   test("variadic flags are emitted as ONE --flag=value token", () => {
@@ -1382,7 +1382,7 @@ describe("matrix", () => {
       expect(r.argv).toContain("--model");
       expect(r.arm).not.toBe("");
     }
-    expect(rows.find((r) => r.profile === "codex" && r.role === "worker")!.arm).toBe("gpt-5.6-sol:worker");
+    expect(rows.find((r) => r.profile === "codex" && r.role === "worker")!.arm).toBe("gpt-6-astra:worker");
     expect(rows.find((r) => r.profile === "" && r.role === "advisor")!.arm).toBe("fable:advisor");
     // the local pool reroutes only that account's advisor
     expect(rows.find((r) => r.profile === "spent_acct_1a" && r.role === "advisor")!.arm).toBe("opus-5:advisor");
