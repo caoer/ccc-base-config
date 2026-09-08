@@ -18,8 +18,25 @@ src="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 # The bundle, exactly — `git ls-files worker/launch-config` on the other side.
 # Everything else here (this script, ci-watch, pools.local.json) stays out of
 # the package: a shipped file may hold nothing user- or machine-specific.
-FILES=(launch.ts rules.ts GUIDE.md launch.test.ts matrix.golden.txt matrix-viewer.html .gitignore)
-DIRS=(prompts)
+#
+# The lists name every entry the bundle may carry; the source decides which of
+# them exist, so a name this config repo has not grown yet is simply not packed.
+FILES=(launch.ts launch.mjs rules.ts GUIDE.md fleet.md launch.test.ts matrix.golden.txt matrix-viewer.html .gitignore)
+DIRS=(prompts launch mcp)
+
+# The pages compose by symlink, so kind is part of the comparison: a link and a
+# regular file holding the link's destination are the same bytes and different
+# things. `cmp` alone reads them as equal, which is how a flattened link ships
+# unnoticed.
+differs() {
+  local a=$1 b=$2
+  if [[ -L $a || -L $b ]]; then
+    [[ -L $a && -L $b && "$(readlink "$a")" == "$(readlink "$b")" ]] && return 1
+    return 0
+  fi
+  cmp -s "$a" "$b" && return 1
+  return 0
+}
 
 dry=0
 repo="${CCC_STATUSD_REPO:-}"
@@ -45,11 +62,14 @@ dst="$repo/worker/launch-config"
 if ((dry)); then
   changed=0
   for f in "${FILES[@]}"; do
-    cmp -s "$src/$f" "$dst/$f" || { echo "differs: $f"; changed=1; }
+    [[ -e "$src/$f" || -L "$src/$f" ]] || continue
+    differs "$src/$f" "$dst/$f" && { echo "differs: $f"; changed=1; }
   done
   for d in "${DIRS[@]}"; do
+    [[ -d "$src/$d" ]] || continue
     # -c: compare content, so a mtime skew is not reported as a difference
-    while read -r line; do echo "$d/: $line"; changed=1; done < <(rsync -rcin --delete "$src/$d/" "$dst/$d/" | grep -v '^\.d')
+    # -l: a symlink is a symlink on both sides, never a copy and never skipped
+    while read -r line; do echo "$d/: $line"; changed=1; done < <(rsync -rlcin --delete "$src/$d/" "$dst/$d/" | grep -v '^\.d')
   done
   ((changed)) || echo "already in sync"
   exit 0
@@ -62,8 +82,16 @@ if [[ -n "$(git -C "$src" status --porcelain -- "${FILES[@]}" "${DIRS[@]}")" ]];
   die "the bundle is uncommitted here — commit it first, or the vendor commit's config@$sha is a lie"
 fi
 
-for f in "${FILES[@]}"; do cp -p "$src/$f" "$dst/$f"; done
-for d in "${DIRS[@]}"; do rsync -rc --delete "$src/$d/" "$dst/$d/"; done
+# -P on cp and -l on rsync: a link crosses as a link. Without them cp flattens
+# it into a copy of its destination and rsync drops it entirely.
+for f in "${FILES[@]}"; do
+  [[ -e "$src/$f" || -L "$src/$f" ]] || continue
+  cp -Pp "$src/$f" "$dst/$f"
+done
+for d in "${DIRS[@]}"; do
+  [[ -d "$src/$d" ]] || continue
+  rsync -rlc --delete "$src/$d/" "$dst/$d/"
+done
 
 # It has to pass where it now lives, not only where it was written.
 (cd "$dst" && bun test launch.test.ts)
