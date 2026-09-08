@@ -21,8 +21,14 @@ src="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 #
 # The lists name every entry the bundle may carry; the source decides which of
 # them exist, so a name this config repo has not grown yet is simply not packed.
-FILES=(launch.ts launch.mjs rules.ts GUIDE.md fleet.md launch.test.ts matrix.golden.txt matrix-viewer.html .gitignore)
-DIRS=(prompts launch mcp)
+# A retired name must LEAVE these lists, not merely stop being written. The
+# lists are read against the SOURCE — this machine — and an installed config
+# still holding launch.ts, rules.ts or prompts/ would copy them back over the
+# repo and undo their deletion, silently and in the direction nobody watches.
+# MERIDIAN.md is absent on purpose: it declares this root to the local engine
+# and is machine-local, exactly like pools.local.json.
+FILES=(launch.mjs GUIDE.md fleet.md launch.test.mjs .gitignore)
+DIRS=(launch mcp)
 
 # The pages compose by symlink, so kind is part of the comparison: a link and a
 # regular file holding the link's destination are the same bytes and different
@@ -94,7 +100,7 @@ for d in "${DIRS[@]}"; do
 done
 
 # It has to pass where it now lives, not only where it was written.
-(cd "$dst" && bun test launch.test.ts)
+(cd "$dst" && bun test launch.test.mjs)
 
 if [[ -z "$(git -C "$repo" status --porcelain -- worker/launch-config)" ]]; then
   echo "already at config@$sha — nothing to commit"
