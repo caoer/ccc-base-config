@@ -1,279 +1,203 @@
 # Launch config — guide
 
-This directory decides what every `ucc-*` launch gets: which model, which
-system prompt, which flags. Two files do the work.
+This directory decides what every `ucc-*` launch gets: system prompt, model,
+tools, MCP servers. **The pages are the config**: the launcher builds candidate
+filenames from the launch facts and takes the first file that exists, so `ls
+launch/` is the whole vocabulary and `explain` prints the list it walked.
 
 | File | What it is |
 |---|---|
-| `rules.ts` | **The config.** Pure data — tables you edit. Nothing in it runs. Ships in the UCC package, so nothing user-specific goes here. |
-| `launch.ts` | The engine. Reads the tables, answers them against the machine, prints flags. You rarely open it. |
-| `prompts/*.md` | The system prompts. Written elsewhere; only pointed at from `rules.ts`. |
-| `prompts/NOTES.md` | Maintainer notes for the ownership prompt family: the rebuild recipe for the role variants, the next cuts per section, and what is held out of the prompt by design. Not a prompt. |
-| `pools.local.json` | **Per-user pool members** (e.g. which accounts are fable-spent). Local to the machine, gitignored, never touched by the installer. |
+| `launch/*.md` | One agent definition per launch kind; the body, verbatim, is the system prompt. Symlinks live here too. |
+| `mcp/*.md` | One MCP server each: the gate in frontmatter, the server object in the body's first JSON fence. |
+| `fleet.md` | The fleet-wide deny list — one key, applied to every launch on every machine. |
+| `pools.local.json` | Per-machine set membership. Gitignored, never shipped, never written by the installer. |
+| `launch.mjs` | The launcher: `explain`, `check`, and the render the wrappers call. |
+| `launch.test.mjs` | `node --test launch.test.mjs` — the same file runs under `bun test`. |
 
-Everything else is generated or supporting: `matrix.golden.txt` (a rendered
-snapshot of the whole config), `matrix-viewer.html` (the debug page template),
-`launch.test.ts`, `.rendered/` (gitignored scratch).
+## Quick start
 
-## How one launch is decided
+```bash
+node launch.mjs check                                    # the whole tree; exit 1 on any error
+node launch.mjs explain --role worker --profile <p>      # what one launch gets, and why
+node launch.mjs explain --launch heartbeat
+ucc-<p> --role leader --launch heartbeat --effort high   # the wrapper reads these
+```
 
-Three steps, always in this order:
+## The ladder
 
-1. **defaults** — no effort override, verbose off, and the fleet-wide
-   `disallowedTools` list (an array; every launch drops those tools).
-2. **the router** — the first matching route in `routes` wins and names an
-   **arm**. An arm is a `(model, prompt)` pair.
-3. **layers** — every matching layer applies, in order, on top.
+Candidates in this order, `X.<role>.md` before `X.md` at each rung; the first
+file that exists wins:
 
-Then these rules run over the result:
+1. `<kind>` — only with `--launch NAME`, and then the **only** rung: no file
+   for it refuses (exit 2), never falls through;
+2. `<model>`, then each shorter dash-prefix (`claude-opus-4-8` →
+   `claude-opus-4` → `claude-opus` → `claude`);
+3. `@<profile>`;
+4. each `<SET>` the profile belongs to — listed in `pools.local.json` (key
+   order), or `FABLE_SPENT` derived from the profile's own `ratelimit.json` (a
+   live `7d_oi` window that is refused or above 0.9 utilization; the trace
+   line names the source);
+5. `default`.
 
-- **Every claude id carries `[1m]`.** Without it the session reports a 200k
-  context window. The postfix is the harness's, not the id's: matching strips
-  it from the request AND from the rule, so a route may say `claude-opus-5` or
-  `claude-opus-5[1m]` and either spelling of a request reaches it.
-- **Model ID and reasoning effort are independent.** Use
-  `--model claude-opus-5[1m] --effort max`, or JSON fields
-  `{"model":"claude-opus-5[1m]","effort":"max"}`. Effort can be set without
-  a model and overrides arm/layer defaults. Model names are never split to
-  infer effort; pass `--effort` explicitly.
-- **A non-Anthropic `ANTHROPIC_BASE_URL` gets no fleet `--model` — none, no
-  matter what.** The seat points at someone else's API, which serves its own
-  ids, so anything we default — the route arm, or a saved `settings.json`
-  `model` — would likely be wrong. The profile's own `ANTHROPIC_MODEL`
-  applies, and a TUI `/model` pick still sticks across restarts because the
-  harness reads `settings.json` `model` natively when no `--model` flag
-  arrives. A URL containing `anthropic.com` counts as Anthropic's own API
-  and keeps the fleet rules. Arm effort is dropped with the model (so
-  settings `effortLevel` sticks); layers like minimax may still set effort.
-  A `pin`ned arm is the exception — pinning states that we know that
-  endpoint's id and always send it.
-- **The engine judges the seat's env, not the renderer's.** A profile's
-  `.env` is sourced over the caller's env at launch, so `render`/`explain`
-  overlay the profile `.env` on the caller env before answering env probes.
-  A ccc-tmux pre-render from a claude-account shell therefore still sees a
-  GLM seat's endpoint and splices no model into it — and a wrapper render,
-  which already ran with `.env` sourced, renders identically.
+A name is one condition token plus an optional role: a bare lowercase word is
+a kind, `@` prefixes a profile, ALL-CAPS is a set, the last token before `.md`
+may be `advisor`, `leader` or `worker`. A name never carries `[1m]`. A page
+with an empty body is not a candidate. `ls -l launch/` is the authority for
+what exists.
 
-`layers` carries only functional config (the shared `.mcp.json`, the
-ccc-statusd MCP, the MiniMax MCP) — each gated by `requires` probes against
-the real machine. A role gets a whole prompt, not a base plus an overlay, so
-no layer writes prompt text. The old shared-`SYSTEM_PROMPT.md` convention is
-gone: the engine owns ALL launch config, and the bash wrappers inject
-nothing of their own.
+Three consequences of the ladder: a model rung resolves `X.<role>.md` before
+`X.md`, so a role gets its own prompt wherever a dash-prefix page has role
+variants; an explicit `--model` that no page names runs the `default` page's
+prompt with the model asked for — the page carries the fleet MCP servers and
+doctrine, plain would lose both; a leader on `--model claude-opus-4-8` keeps
+`AskUserQuestion`, because that page is roleless-only and the denial lives on
+the leader pages.
 
-## What the fleet does now
+## A page
 
-| Launch | Model | Prompt |
+```markdown
+---
+model: claude-sonnet-5[1m]
+effort: medium
+tools: [Bash, Read, AskUserQuestion]
+mcpServers: [ccc-statusd]
+---
+You are the fleet heartbeat agent: woken, act once, end the turn.
+```
+
+Frontmatter is flat — `key: scalar` or `key: [a, b, "c, quoted"]`. Anything
+nested, a block list, a multi-line scalar or an anchor is refused with file and
+line, by `check` and at launch. The launcher consumes `model`, `effort` and
+`mcpServers`; every other key passes into the definition verbatim
+(`description`, `tools`, `disallowedTools`, `skills`, `permissionMode`,
+`maxTurns`, …). Never write `name`: the definition is named after the resolved
+real file's stem, so `agent_type` in a hook payload names the page at
+`$UCC_HOME/config/launch/<agent_type>.md`.
+
+An `mcp/<name>.md` gate: `env:NAME`, `env:NAME~text`, `exec:PATH`, `bin:NAME`,
+`file:PATH`; `!` negates, ` | ` is OR inside one string, separate strings AND.
+`${VAR}`, `${A|B}` and `${A:-text}` expand inside the fence. An unmet gate
+drops the server with a trace line; a name with no file is a `check` error and
+a launch warning.
+
+`check` prices every page — `launch/x.md: 12224 bytes, 3798 tokens`, the token
+column only when `ccc-statusd` is on PATH — and warns when the definition's
+JSON passes 128 KB, Linux's per-argv-element limit (the escape is the profile's
+on-disk agents directory).
+
+## What reaches the harness
+
+| Situation | Result | Where you see it |
 |---|---|---|
-| advisor | `claude-fable-5[1m]` | `fable-5-ownership.advisor.md` |
-| leader | `claude-opus-5[1m]` | `opus-5-ownership.leader.md` |
-| worker | `claude-opus-5[1m]` | `opus-5-ownership.worker.md` |
-| no role | `claude-opus-5[1m]` | `opus-5-ownership.md` |
-| `--model claude-fable-5` or `claude-fable-5-1`, any role | the id as asked, `[1m]` added | the fable prompt for that role |
-| `codex` (`gpt-6-astra`, effort high) / `grok` / `kimi-k3-moonshot` | their own pinned id | the fable prompts |
-| the other 27 endpoint profiles | none — `ANTHROPIC_MODEL` applies | the opus-5 prompts |
+| `--launch NAME` and no `NAME.md` / `NAME.<role>.md` | **refused, exit 2** | stderr `launch-config: no launch kind` |
+| explicit `--model` differs from the profile's `ANTHROPIC_MODEL` | **refused, exit 2** — never a silently replaced model; ask for effort with `--effort` instead | stderr `REFUSED — --model … cannot be served` |
+| profile pins `ANTHROPIC_MODEL` | the page's `model` is dropped; the harness reads the pin natively | trace `pin:` |
+| `ANTHROPIC_BASE_URL` set and not `anthropic.com` | the page's model and effort are dropped (the profile's `settings.json` effortLevel keeps its own); an explicit `--effort` still wins; no `ANTHROPIC_MODEL` warns `provision one` | trace `foreign endpoint:` |
+| explicit claude id without `[1m]` | `[1m]` appended — without it the session reports a 200k window | trace `normalized to` |
+| resume (`-r`, `--resume`, `-c`, `--continue`) | the definition is emitted (prompt and tools), model and effort are not — unless asked explicitly. Neither the kind nor the role is remembered: a resume that must come back as one names it, `ucc-<p> --role leader --resume <id>` | trace `resume/continue:` |
+| caller already passed `--agent`, `--agents`, `--system-prompt[-file]` | nothing emitted, deny list included; `--effort` and `--disallowedTools` each suppress their own flag only | trace `caller passed` |
+| a missing, unreadable or malformed page; no page at all | exit 0, **warns and launches plain**, every caller | stderr `launch-config: …` |
+| the render itself broke (any other non-zero) | the wrapper and an adhoc `ccc-agent spawn` launch plain | stderr `launch-config: render failed` |
 
-## See what renders
+Exit 2 and a broken render are **fatal for a fleet spawn** (`--session-dir`,
+through `ccc-tmux spawn-agent` or the Go launch line): a seat without its
+rendered role and model is the silent degrade the refusal exists to kill. The
+bash wrapper aborts on exit 2 and launches plain on any other failure.
 
-Never guess. The same engine that launches also prints.
+Both refusals are decided before any degrade: a caller's own `--system-prompt`,
+a missing page or a broken one never hides one. Rendered args are prepended, so
+caller flags win by position, and `--` ends every option scan — what follows is
+the user's, verbatim.
+
+The wire rules read the **seat's** environment: the profile's `.env` laid over
+the caller's, with `ANTHROPIC_MODEL`, `ANTHROPIC_BASE_URL`, `ANTHROPIC_API_KEY`
+and `ANTHROPIC_AUTH_TOKEN` taken from that file alone — a pre-render from a
+codex seat never routes a claude spawn by the spawner's pin.
+
+`CLAUDE_CODE_EFFORT_LEVEL` overrides a profile's `settings.json` effortLevel
+once one is set; the installer drops the variable for every profile whose
+effort it provisions. A CLI `--effort` beats both.
+
+## Two composition moves
+
+**A symlink** is the only way one name reuses another page's bytes:
 
 ```bash
-bun launch.ts explain --role worker --profile dewiest_gulp
+ln -s claude-opus-5.advisor.md launch/FABLE_SPENT.advisor.md
 ```
-One launch: the rules that fired, in order, then the argv. Reach for this
-first when a launch surprises you.
+
+The target resolves inside `launch/`, its role suffix matches the link's, and
+the definition is named after the target's stem — one page with several
+addresses, never a copy that drifts.
+
+**A set** is membership. `{ "FABLE_SPENT": ["some_profile_3x"] }` in
+`pools.local.json` is the entire act of routing that account to
+`FABLE_SPENT.<role>.md`. There is no `+`, no rules file, no `match:` or
+`priority:`, and no page any page inherits from.
+
+### Try a prompt on yourself
 
 ```bash
-bun launch.ts --role worker --output shell     # just the flags
-bun launch.ts --role worker                    # the JSON the launchers consume
+cd $UCC_HOME/config/launch
+cp default.worker.md @<my-profile>.worker.md   # a copy only you route to
+$EDITOR @<my-profile>.worker.md
+node ../launch.mjs explain --role worker --profile <my-profile>
+ucc-<my-profile>
+rm @<my-profile>.worker.md                      # the whole rollback
 ```
 
-```bash
-bun launch.ts matrix                     # the profiles rules.ts names
-bun launch.ts matrix --all-profiles      # every installed profile (44 today)
-bun launch.ts matrix --roles worker      # narrow one axis
-bun launch.ts matrix --models ",claude-opus-5,sonnet"
-bun launch.ts matrix --cwds "/Users/Shared/projects/caoer/ccc-statusd"
-```
-
-Axis flags take a comma list. A leading comma includes the empty case
-(no model / no cwd / no profile). Add `--output json` for the raw rows.
-
-```bash
-bun launch.ts matrix --all-profiles --html /tmp/m.html && open /tmp/m.html
-```
-A single self-contained page — no server, no build, no dependencies. Filter
-any column, click a row for its argv and full trace, or collapse to distinct
-launches. It is a snapshot: edit `rules.ts`, re-run the command.
-
-Each profile in the matrix renders against **its own** `.env`, so
-`ANTHROPIC_*` is never inherited from the shell you invoke it from. Rows with
-no profile can only reflect your current shell; the table says so in a header
-line when that shell is itself an endpoint session.
-
-## Common edits
-
-All of these are one or two lines in `rules.ts`. Re-run `matrix` afterwards to
-see what moved.
-
-**Change what a role gets.** Edit its route in `routes`. Routes are ordered and
-the first match wins, so read from the top.
-
-```ts
-{ when: { noModel: true, role: "leader" }, use: "opus-5:leader" },
-```
-
-**Add a model.** Add an arm, then point routes at it. Role variants are
-separate arms — the table is long on purpose, so every case is a row you can
-read rather than a rule you have to simulate.
-
-```ts
-"opus-6": { model: "claude-opus-6[1m]", prompt: "prompts/opus-6.md" },
-"opus-6:worker": { model: "claude-opus-6[1m]", prompt: "prompts/opus-6.worker.md" },
-```
-
-**Change a prompt.** Point the arm at a different file. Prompts are written
-elsewhere and copied in; this directory never edits or assembles prompt text.
-
-**Route by project directory.** `cwd` matches an absolute path (that directory
-and everything below it) or a bare word (substring of the path).
-
-```ts
-{ when: { noModel: true, cwd: "/Users/Shared/projects/caoer/ccc-statusd" }, use: "opus-5:worker" },
-```
-
-**Give one account different treatment.** Add it to a pool, then match the
-pool. `rules.ts` only DECLARES pools; members are per-user and live in
-`pools.local.json` next to it:
-
-```json
-{ "FABLE_SPENT": ["some_profile_3x"] }
-```
-
-The fable case is why this file exists: an account can still have credit
-while fable is metered separately and unavailable. Listing the profile there
-reroutes only its advisor launches to opus-5.
-
-**Add an endpoint that speaks its own ids.** Give the arm `pin: true`, which
-means this id is always sent. An explicit `--model` naming a *different* id is
-REFUSED (exit 2) — the endpoint cannot serve it, and silently replacing an
-explicit request is the launcher fault the refusal exists to kill. A request
-for the pinned id itself is honored. Set reasoning effort with its separate
-flag, e.g. `--model k3 --effort max`, or keep the pinned model by passing
-only `--effort max`. A model ID with an appended effort is a different ID
-and is refused by the pin.
+`@<profile>` beats every set and `default`; the same trick with a `<SET>` name
+tries a prompt on a group.
 
 ## Who calls this
 
-Two callers, one contract. Both pass a JSON object and read back
-`{ argv, model_matched, trace, warnings }`.
+A JSON object in, `{ argv, model_matched, trace, warnings }` out.
 
-- **`ucc-<profile>`** (the bash wrapper) sends `harness`, `project`, `profile`
-  and its whole raw command line as `argv`. The engine derives the requested
-  model, effort and the resume flag from `argv`, and never re-emits a flag
-  family the caller already used — that is what makes `--system-prompt "."` on the
-  command line suppress the arm prompt instead of clashing with it. It never
-  sends `role`. It runs the shared node.
-- **`ccc-tmux spawn-agent`** sends `harness`, `project`, `profile`, `model`,
-  `role` and no `argv`. It runs bun. A spawn's launch is rendered twice — once
-  by ccc-tmux, once by the wrapper — and the second render is idempotent: it
-  sees every rendered flag in `argv` and adds nothing but the normalized
-  model.
+- **`ucc-<profile>`** sends `project`, `profile`, `launch`, `role` and its raw
+  command line as `argv`; the launcher derives `--model`, `--effort` and the
+  resume flag from it. The wrapper captures `--launch` and `--role` (neither is
+  a Claude Code flag) and sends them as `params.launch` and `params.role`. It
+  runs the shared node.
+- **`ccc-tmux spawn-agent` / `ccc-agent spawn`** send `project`, `profile`,
+  `model`, `role` and `launch`, no `argv`, under bun. A spawn renders twice —
+  before the pane and in the wrapper — and the second render emits nothing.
 
-On resume (`-r`/`--resume`/`-c`/`--continue` in `argv`) the engine emits no
-`--model` and no `--effort` — the session keeps its own — but still emits the
-prompt and mcp config. An explicitly requested model on resume is honored.
-An explicit effort changes only effort when no model is requested.
+`model_matched` says whether our argv carries a real `--model`; when we emit
+none the caller's own survives, which is how an explicit override reaches a
+foreign endpoint.
 
-`model_matched` tells the caller whether our argv carries a real `--model`, so
-it knows to drop its own. When we emit none — an endpoint profile — the
-caller's own `--model` survives, which is what makes an explicit override work.
+## Reading the pages as records
 
-If this script fails, the wrapper launches without rendered config and says so
-on stderr. `ccc-tmux` refuses to spawn a fleet agent rather than launch one
-with the wrong model.
+`$UCC_HOME/config` is the `ucc-config` root of the ccc-statusd MCP:
 
-Exit 2 is different from failure: it is a REFUSAL — an explicit `--model` that
-a pinned arm cannot serve. stderr names what the endpoint serves and how to
-fix the call. The launching wrapper aborts on exit 2, never degrades: it is
-the last gate, and degrading there would land the silently-wrong model the
-refusal exists to kill. A pre-spawn renderer (ccc-tmux) surfaces the refusal
-and splices no model of its own — the pane wrapper re-renders and enforces,
-so no path launches a model the request did not name.
-
-The engine must run under **both** the ucc shared node and **bun**, since the
-two callers use different runtimes. It relies on node's native TypeScript
-stripping, so keep it free of runtime-specific APIs and of syntax that stripping
-rejects — no `enum`, no parameter properties. `bun test` checks that node and
-bun render identical argv.
-
-## Tests
-
-```bash
-bun test launch.test.ts
+```
+read ref="ucc-config:launch/default.worker.md"
 ```
 
-Four levels: the process contract against this real directory, node-and-bun
-agreement, the engine against a made-up world, and the golden matrix.
-
-`matrix.golden.txt` is the whole config rendered — against a PINNED world
-(`--pinned`: no env, no disk probes) and without local pools, so the file is
-identical on every machine. Any rules change shows up as a readable diff
-there, so regenerate it in the same commit:
-
-```bash
-bun launch.ts matrix --pinned --pools none --models ",claude-opus-5,claude-opus-4-8[200k],sonnet" > matrix.golden.txt
-```
+Two halves, both machine-local: a `meridian-mount` block in `~/MERIDIAN.md`
+binds the name, and a `MERIDIAN.md` at `$UCC_HOME/config` carrying
+`type: meridian-root` and the same `name:` declares it. Either alone leaves the
+root `grey(undeclared)` with every read refusing.
 
 ## Distribution
 
-This directory ships in the UCC package: the worker repo vendors it at
-`worker/launch-config/`, uploads it to R2 with the other templates, and the
-installer extracts it to `$UCC_HOME/config/` on every machine. Two rules keep
-that safe:
-
-- **Nothing user-specific in shipped files.** Per-user state is
-  `pools.local.json`, which the installer never writes.
-- **A git checkout wins.** When `$UCC_HOME/config/.git` exists (this
-  development machine), the installer leaves the directory alone entirely.
-  Sync the vendored copy from here in the same change that edits the rules —
-  otherwise this machine has the fix and every installed machine does not.
-
-`sync-launch-config.sh` is that sync. It copies the bundle (and only the
-bundle — never `pools.local.json` or the scripts beside it), runs the suite
-where it lands, and commits just `worker/launch-config/` in the worker repo,
-which is a multi-agent working tree full of other agents' uncommitted work.
+The ccc-statusd repo vendors this directory at `worker/launch-config/`; the
+installer extracts it to `$UCC_HOME/config/`, symlinks included. Nothing user-
+or machine-specific ships — `pools.local.json` and the `MERIDIAN.md`
+declaration stay local. A git checkout at `$UCC_HOME/config/.git` wins: the
+installer leaves it alone, so on such a host you edit the checkout and vendor
+it back in the same change:
 
 ```bash
-./sync-launch-config.sh --dry-run   # name what drifted, change nothing
-./sync-launch-config.sh             # copy, test, commit  (vendor config@<sha>)
+node launch.mjs check && node --test launch.test.mjs   # then commit here: the sync names this sha
+./sync-launch-config.sh --dry-run                      # name what drifted, change nothing
+./sync-launch-config.sh                                # copy the bundle (never pools.local.json), test there, path-scoped commit
+cd /path/to/ccc-statusd/worker && npm run upload:config   # publish templates/launch-config.tar.gz without a release
+ucc-cli config update                                  # an installed machine: pages + launcher; pools.local.json and checkouts preserved
 ```
 
-It refuses while the bundle is uncommitted here, because the commit it writes
-there names this repo's sha. So the order is: edit, `bun test`, regenerate
-`matrix.golden.txt` if the rules moved, commit here, then sync.
-
-### Update launch config independently
-
-Publish committed prompt and routing changes after the sync:
-
-```bash
-cd /path/to/ccc-statusd/worker
-npm run upload:config
-```
-
-This uploads only `templates/launch-config.tar.gz` to R2, using the same source
-and object as a full release. It does not build binaries or redeploy the Worker.
-The bundle is packed from the committed `worker/launch-config/` tree.
-
-On an installed machine:
-
-```bash
-ucc-cli config update
-```
-
-The command reads the existing installer credentials and updates launch rules
-and prompts. It preserves `pools.local.json` and git checkouts. New launches
-use the updated files; running sessions keep their existing prompt. The full
-installer uses this same update path. A machine needs a UCC version carrying
-this command once; subsequent config changes need only upload and update.
+On a host, the **installer runs first and `ucc-cli config update` second**:
+endpoint efforts live on the profile plane (`settings.json`), so a host that
+takes the pages without the installer runs codex, grok, kimi and deepseek at
+the harness default effort. New launches use the updated files; running
+sessions keep the prompt they were born with.

@@ -63,7 +63,7 @@ fi
 [[ -n $repo ]] || die "no ccc-statusd checkout found — pass its path or set CCC_STATUSD_REPO"
 repo="$(cd "$repo" 2> /dev/null && pwd -P)" || die "no such directory: $repo"
 dst="$repo/worker/launch-config"
-[[ -f "$dst/launch.ts" ]] || die "$dst is not a launch-config bundle"
+[[ -f "$dst/launch.mjs" ]] || die "$dst is not a launch-config bundle"
 
 if ((dry)); then
   changed=0
