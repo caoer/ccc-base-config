@@ -130,10 +130,13 @@ The target resolves inside `launch/`, its role suffix matches the link's, and
 the definition is named after the target's stem — one page with several
 addresses, never a copy that drifts.
 
-**A set** is membership. `{ "FABLE_SPENT": ["some_profile_3x"] }` in
-`pools.local.json` is the entire act of routing that account to
-`FABLE_SPENT.<role>.md`. There is no `+`, no rules file, no `match:` or
-`priority:`, and no page any page inherits from.
+**A set** is membership, from two sources. `{ "FABLE_SPENT": ["some_profile_3x"] }`
+in `pools.local.json` routes that account to `FABLE_SPENT.<role>.md` on this
+machine; `FABLE_SPENT` is also derived, with no entry, from the profile's own
+`ratelimit.json` when its `7d_oi` window is live and refused or above 0.9
+utilization — the trace line says which source put the profile in the set.
+Either source alone is the whole act. There is no `+`, no rules file, no
+`match:` or `priority:`, and no page any page inherits from.
 
 ### Try a prompt on yourself
 
