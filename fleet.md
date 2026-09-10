@@ -1,5 +1,5 @@
 ---
-disallowedTools: [TaskOutput, Artifact, ReportFindings, ListAgents, ScheduleWakeup]
+disallowedTools: [TaskOutput, Artifact, ReportFindings, ListAgents, ScheduleWakeup, EnterWorktree, ExitWorktree]
 ---
 
 # fleet
