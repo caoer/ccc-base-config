@@ -1,4 +1,5 @@
 ---
+run.timeout_secs: "2700"
 description: the UCC launch config — the filename ladder of markdown launch pages, their MCP server definitions and the fleet deny list, read by launch.mjs before any hook fires
 type: meridian-root
 version: 1
