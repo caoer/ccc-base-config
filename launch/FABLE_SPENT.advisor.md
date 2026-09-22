@@ -1,1 +1,1 @@
-claude-opus-5.advisor.md
+claude-opus-5-5.advisor.md

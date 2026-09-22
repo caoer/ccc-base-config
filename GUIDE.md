@@ -123,7 +123,7 @@ effort it provisions. A CLI `--effort` beats both.
 **A symlink** is the only way one name reuses another page's bytes:
 
 ```bash
-ln -s claude-opus-5.advisor.md launch/FABLE_SPENT.advisor.md
+ln -s claude-opus-5-5.advisor.md launch/FABLE_SPENT.advisor.md
 ```
 
 The target resolves inside `launch/`, its role suffix matches the link's, and
