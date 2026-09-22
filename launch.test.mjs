@@ -69,10 +69,10 @@ const page = (front, body = "You are a worker.\n") => `---\n${front}\n---\n${bod
 describe("unit 1: frontmatter grammar", () => {
   test("splits frontmatter from a verbatim body", () => {
     const { front, body } = parsePage(
-      "---\nmodel: claude-opus-5[1m]\n---\nLine one\n\n---\nnot frontmatter\n",
+      "---\nmodel: claude-opus-5-5[1m]\n---\nLine one\n\n---\nnot frontmatter\n",
       "p.md",
     );
-    assert.deepEqual(front, { model: "claude-opus-5[1m]" });
+    assert.deepEqual(front, { model: "claude-opus-5-5[1m]" });
     assert.equal(body, "Line one\n\n---\nnot frontmatter\n");
   });
 
@@ -263,8 +263,8 @@ describe("unit 2: candidate construction", () => {
     },
     {
       why: "the [1m] postfix is not part of a filename",
-      ctx: { model: "claude-opus-5[1m]" },
-      want: ["claude-opus-5.md", "claude-opus.md", "claude.md", "default.md"],
+      ctx: { model: "claude-opus-5-5[1m]" },
+      want: ["claude-opus-5-5.md", "claude-opus-5.md", "claude-opus.md", "claude.md", "default.md"],
     },
     {
       why: "a model id with no dashes is one rung",
@@ -306,7 +306,7 @@ describe("unit 2: the pick", () => {
   test("first existing file wins, and misses are traced", (t) => {
     const dir = fixture({
       "launch/claude-opus-4-8.md": page("model: claude-opus-4-8[1m]"),
-      "launch/default.worker.md": page("model: claude-opus-5[1m]"),
+      "launch/default.worker.md": page("model: claude-opus-5-5[1m]"),
     });
     cleanup(t, dir);
     const trace = [];
@@ -329,14 +329,14 @@ describe("unit 2: the pick", () => {
   });
 
   test("role-first, then the roleless rung", (t) => {
-    const dir = fixture({ "launch/default.md": page("model: claude-opus-5[1m]") });
+    const dir = fixture({ "launch/default.md": page("model: claude-opus-5-5[1m]") });
     cleanup(t, dir);
     const roleless = choosePage(join(dir, "launch"), { role: "leader" }, [], []);
     assert.equal(roleless.pick.stem, "default");
 
     const dir2 = fixture({
-      "launch/default.md": page("model: claude-opus-5[1m]"),
-      "launch/default.leader.md": page("model: claude-opus-5[1m]"),
+      "launch/default.md": page("model: claude-opus-5-5[1m]"),
+      "launch/default.leader.md": page("model: claude-opus-5-5[1m]"),
     });
     cleanup(t, dir2);
     assert.equal(choosePage(join(dir2, "launch"), { role: "leader" }, [], []).pick.stem, "default.leader");
@@ -360,18 +360,18 @@ describe("unit 2: the pick", () => {
 
   test("a set member takes the set page, ahead of default", (t) => {
     const dir = fixture(
-      { "launch/claude-opus-5.advisor.md": page("model: claude-opus-5[1m]") },
-      { "launch/FABLE_SPENT.advisor.md": "claude-opus-5.advisor.md" },
+      { "launch/claude-opus-5-5.advisor.md": page("model: claude-opus-5-5[1m]") },
+      { "launch/FABLE_SPENT.advisor.md": "claude-opus-5-5.advisor.md" },
     );
     cleanup(t, dir);
     const got = choosePage(join(dir, "launch"), { profile: "zt", sets: ["FABLE_SPENT"], role: "advisor" }, [], []);
-    assert.equal(got.pick.stem, "claude-opus-5.advisor");
+    assert.equal(got.pick.stem, "claude-opus-5-5.advisor");
   });
 
   test("a symlink pointing outside launch/ is not a candidate — the ladder continues", (t) => {
     const dir = fixture({
-      "launch/default.md": page("model: claude-opus-5[1m]"),
-      "outside/evil.md": page("model: claude-opus-5[1m]"),
+      "launch/default.md": page("model: claude-opus-5-5[1m]"),
+      "outside/evil.md": page("model: claude-opus-5-5[1m]"),
     });
     cleanup(t, dir);
     symlinkSync("../outside/evil.md", join(dir, "launch", "@codex.md"));
@@ -382,7 +382,7 @@ describe("unit 2: the pick", () => {
   });
 
   test("a dangling symlink is not a candidate", (t) => {
-    const dir = fixture({ "launch/default.md": page("model: claude-opus-5[1m]") });
+    const dir = fixture({ "launch/default.md": page("model: claude-opus-5-5[1m]") });
     cleanup(t, dir);
     symlinkSync("gone.md", join(dir, "launch", "@codex.md"));
     const warnings = [];
@@ -393,8 +393,8 @@ describe("unit 2: the pick", () => {
 
   test("an empty body is not a candidate — plain keeps the harness prompt, an empty one loses it", (t) => {
     const dir = fixture({
-      "launch/default.worker.md": page("model: claude-opus-5[1m]", "\n\n"),
-      "launch/default.md": page("model: claude-opus-5[1m]"),
+      "launch/default.worker.md": page("model: claude-opus-5-5[1m]", "\n\n"),
+      "launch/default.md": page("model: claude-opus-5-5[1m]"),
     });
     cleanup(t, dir);
     const warnings = [];
@@ -415,7 +415,7 @@ describe("unit 2: the pick", () => {
   });
 
   test("--launch with no file refuses with R10's message, even when default.md exists", (t) => {
-    const dir = fixture({ "launch/default.md": page("model: claude-opus-5[1m]") });
+    const dir = fixture({ "launch/default.md": page("model: claude-opus-5-5[1m]") });
     cleanup(t, dir);
     assert.throws(
       () => choosePage(join(dir, "launch"), { kind: "nope" }, [], []),
@@ -430,7 +430,7 @@ describe("unit 2: the pick", () => {
   test("--launch wins over every other rung", (t) => {
     const dir = fixture({
       "launch/heartbeat.md": page("model: claude-sonnet-5[1m]"),
-      "launch/default.worker.md": page("model: claude-opus-5[1m]"),
+      "launch/default.worker.md": page("model: claude-opus-5-5[1m]"),
     });
     cleanup(t, dir);
     const got = choosePage(join(dir, "launch"), { kind: "heartbeat", role: "worker" }, [], []);
@@ -605,7 +605,7 @@ function configFixture(extra = {}, links = {}) {
   return fixture(
     {
       "fleet.md": FLEET,
-      "launch/default.worker.md": page("model: claude-opus-5[1m]\neffort: xhigh", "You are a worker.\n"),
+      "launch/default.worker.md": page("model: claude-opus-5-5[1m]\neffort: xhigh", "You are a worker.\n"),
       ...extra,
     },
     links,
@@ -620,8 +620,8 @@ const definitionOf = (out) => JSON.parse(flag(out.argv, "--agents"));
 
 describe("unit 4: argv sifting", () => {
   test("reads the model, effort, resume and kind out of the caller's raw argv", () => {
-    const got = siftArgv(["--model", "claude-opus-5", "--effort", "max", "--launch", "heartbeat", "-r", "abc", "-p", "hi"]);
-    assert.equal(got.model, "claude-opus-5");
+    const got = siftArgv(["--model", "claude-opus-5-5", "--effort", "max", "--launch", "heartbeat", "-r", "abc", "-p", "hi"]);
+    assert.equal(got.model, "claude-opus-5-5");
     assert.equal(got.effort, "max");
     assert.equal(got.kind, "heartbeat");
     assert.equal(got.resume, true);
@@ -639,7 +639,7 @@ describe("unit 4: argv sifting", () => {
   });
 
   test("-- ends option scanning: a prompt shaped like a flag stays verbatim", () => {
-    const raw = ["-p", "--", "--launch=heartbeat", "--model", "claude-opus-5", "--resume"];
+    const raw = ["-p", "--", "--launch=heartbeat", "--model", "claude-opus-5-5", "--resume"];
     const got = siftArgv(raw);
     assert.equal(got.kind, undefined);
     assert.equal(got.model, undefined);
@@ -676,7 +676,7 @@ describe("unit 4: the definition and the wire", () => {
     assert.deepEqual(Object.keys(def), ["default.worker"]);
     assert.equal(def["default.worker"].prompt, "You are a worker.\n");
     assert.equal(def["default.worker"].description, "launch page default.worker");
-    assert.equal(def["default.worker"].model, "claude-opus-5[1m]");
+    assert.equal(def["default.worker"].model, "claude-opus-5-5[1m]");
     assert.equal("effort" in def["default.worker"], false);
     assert.equal(out.warnings.length, 0);
   });
@@ -684,7 +684,7 @@ describe("unit 4: the definition and the wire", () => {
   test("unknown keys pass through; effort, mcpServers and name never do", (t) => {
     const dir = configFixture({
       "launch/default.worker.md": page(
-        'description: "the fleet worker"\nmodel: claude-opus-5[1m]\neffort: xhigh\ntools: [Bash, Read]\ndisallowedTools: [AskUserQuestion]\npermissionMode: acceptEdits\nmaxTurns: 40',
+        'description: "the fleet worker"\nmodel: claude-opus-5-5[1m]\neffort: xhigh\ntools: [Bash, Read]\ndisallowedTools: [AskUserQuestion]\npermissionMode: acceptEdits\nmaxTurns: 40',
       ),
     });
     cleanup(t, dir);
@@ -696,13 +696,13 @@ describe("unit 4: the definition and the wire", () => {
       disallowedTools: ["AskUserQuestion"],
       permissionMode: "acceptEdits",
       maxTurns: 40,
-      model: "claude-opus-5[1m]",
+      model: "claude-opus-5-5[1m]",
     });
   });
 
   test("a body with a quote, a ${VAR} and newlines survives the JSON unharmed", (t) => {
     const body = 'Say "hello" — never ${HOME}.\n\nSecond line ends with a backslash \\\n';
-    const dir = configFixture({ "launch/default.worker.md": page("model: claude-opus-5[1m]", body) });
+    const dir = configFixture({ "launch/default.worker.md": page("model: claude-opus-5-5[1m]", body) });
     cleanup(t, dir);
     const out = render({ role: "worker" }, { dir, env: { HOME: "/home/zt" } });
     assert.equal(definitionOf(out)["default.worker"].prompt, body);
@@ -723,11 +723,11 @@ describe("unit 4: the definition and the wire", () => {
     const dir = configFixture();
     cleanup(t, dir);
     assert.throws(
-      () => render({ model: "claude-opus-5", role: "worker", profile: "codex" }, { dir, env: { ANTHROPIC_MODEL: "gpt-6-astra[1m]" } }),
+      () => render({ model: "claude-opus-5-5", role: "worker", profile: "codex" }, { dir, env: { ANTHROPIC_MODEL: "gpt-6-astra[1m]" } }),
       (e) => {
         assert.ok(e instanceof Refusal);
         assert.equal(e.exitCode, 2);
-        assert.match(e.message, /--model claude-opus-5 cannot be served/);
+        assert.match(e.message, /--model claude-opus-5-5 cannot be served/);
         assert.match(e.message, /profile 'codex'/);
         assert.match(e.message, /serves only gpt-6-astra\[1m\]/);
         assert.match(e.message, /Fix: drop --model/);
@@ -778,7 +778,7 @@ describe("unit 4: the definition and the wire", () => {
     const dir = configFixture();
     cleanup(t, dir);
     const out = render(
-      { model: "claude-opus-5", role: "worker", profile: "zenmux" },
+      { model: "claude-opus-5-5", role: "worker", profile: "zenmux" },
       { dir, env: { ANTHROPIC_BASE_URL: "https://zenmux.ai/api/anthropic" } },
     );
     assert.equal(out.model_matched, false);
@@ -831,7 +831,7 @@ describe("unit 4: the definition and the wire", () => {
 
   test("mcpServers names resolve through mcp/, gate by gate", (t) => {
     const dir = configFixture({
-      "launch/default.worker.md": page("model: claude-opus-5[1m]\nmcpServers: [ccc-statusd, shellkit]"),
+      "launch/default.worker.md": page("model: claude-opus-5-5[1m]\nmcpServers: [ccc-statusd, shellkit]"),
       "mcp/ccc-statusd.md": server('["env:CCC_STATUSD_MCP_TOKEN"]', '{"type": "http", "url": "http://localhost:${CCC_STATUSD_MCP_PORT:-19223}/mcp", "headers": {"Authorization": "Bearer ${CCC_STATUSD_MCP_TOKEN}"}}'),
       "mcp/shellkit.md": server('["env:SHELLKIT_MCP_TOKEN"]', '{"type": "http", "url": "http://localhost:19222/mcp"}'),
     });
@@ -862,7 +862,7 @@ describe("unit 4: the definition and the wire", () => {
 
   test("a page's own disallowedTools stays on the page; the fleet list is one flag", (t) => {
     const dir = configFixture({
-      "launch/default.leader.md": page("model: claude-opus-5[1m]\ndisallowedTools: [AskUserQuestion]"),
+      "launch/default.leader.md": page("model: claude-opus-5-5[1m]\ndisallowedTools: [AskUserQuestion]"),
     });
     cleanup(t, dir);
     const out = render({ role: "leader" }, { dir, env: {} });
@@ -873,7 +873,7 @@ describe("unit 4: the definition and the wire", () => {
   });
 
   test("a role no page knows still launches, with a warning", (t) => {
-    const dir = configFixture({ "launch/default.md": page("model: claude-opus-5[1m]") });
+    const dir = configFixture({ "launch/default.md": page("model: claude-opus-5-5[1m]") });
     cleanup(t, dir);
     const out = render({ role: "reviewer" }, { dir, env: {} });
     assert.equal(flag(out.argv, "--agent"), "default");
@@ -884,14 +884,14 @@ describe("unit 4: the definition and the wire", () => {
     const dir = configFixture(
       {
         "pools.local.json": JSON.stringify({ FABLE_SPENT: ["does_bannock_6u"] }),
-        "launch/claude-opus-5.advisor.md": page("model: claude-opus-5[1m]\neffort: xhigh"),
+        "launch/claude-opus-5-5.advisor.md": page("model: claude-opus-5-5[1m]\neffort: xhigh"),
         "launch/default.advisor.md": page("model: claude-fable-5-1[1m]\neffort: xhigh"),
       },
-      { "launch/FABLE_SPENT.advisor.md": "claude-opus-5.advisor.md" },
+      { "launch/FABLE_SPENT.advisor.md": "claude-opus-5-5.advisor.md" },
     );
     cleanup(t, dir);
     const out = render({ role: "advisor", profile: "does_bannock_6u" }, { dir, env: {} });
-    assert.equal(flag(out.argv, "--agent"), "claude-opus-5.advisor");
+    assert.equal(flag(out.argv, "--agent"), "claude-opus-5-5.advisor");
     const other = render({ role: "advisor", profile: "someone_else" }, { dir, env: {} });
     assert.equal(flag(other.argv, "--agent"), "default.advisor");
   });
@@ -903,7 +903,7 @@ describe("unit 4: the definition and the wire", () => {
     const dir = configFixture(
       {
         "pools.local.json": JSON.stringify({ FABLE_SPENT: ["listed"] }),
-        "launch/claude-opus-5.worker.md": page("model: claude-opus-5[1m]\neffort: xhigh"),
+        "launch/claude-opus-5-5.worker.md": page("model: claude-opus-5-5[1m]\neffort: xhigh"),
         "launch/default.worker.md": page("model: claude-fable-5-1[1m]\neffort: medium"),
         "profiles/rejected/ratelimit.json": rl({ "7d_oi-status": "rejected" }),
         "profiles/spent/ratelimit.json": rl({ "7d_oi-utilization": "0.95" }),
@@ -912,17 +912,17 @@ describe("unit 4: the definition and the wire", () => {
         "profiles/broken/ratelimit.json": "{not json",
         "profiles/listed/ratelimit.json": rl({}),
       },
-      { "launch/FABLE_SPENT.worker.md": "claude-opus-5.worker.md" },
+      { "launch/FABLE_SPENT.worker.md": "claude-opus-5-5.worker.md" },
     );
     cleanup(t, dir);
     const env = { UCC_HOME: dir };
     const agent = (profile) => flag(render({ role: "worker", profile }, { dir, env }).argv, "--agent");
 
     const out = render({ role: "worker", profile: "rejected" }, { dir, env });
-    assert.equal(flag(out.argv, "--agent"), "claude-opus-5.worker");
+    assert.equal(flag(out.argv, "--agent"), "claude-opus-5-5.worker");
     assert.match(out.trace.join("\n"), /set FABLE_SPENT: ratelimit\.json 7d_oi-status=rejected/);
-    assert.equal(agent("spent"), "claude-opus-5.worker");
-    assert.equal(agent("listed"), "claude-opus-5.worker"); // the static file still counts
+    assert.equal(agent("spent"), "claude-opus-5-5.worker");
+    assert.equal(agent("listed"), "claude-opus-5-5.worker"); // the static file still counts
     for (const quiet of ["warned", "stale", "broken", "absent"]) {
       const o = render({ role: "worker", profile: quiet }, { dir, env });
       assert.equal(flag(o.argv, "--agent"), "default.worker", quiet);
@@ -937,7 +937,7 @@ describe("unit 4: the definition and the wire", () => {
 // success first, so the wrapper forwarded the incompatible model with exit 0.
 describe("unit 4: refusals come before every shortcut", () => {
   const pinned = { ANTHROPIC_MODEL: "gpt-6-astra[1m]" };
-  const mismatch = ["--model", "claude-opus-5"];
+  const mismatch = ["--model", "claude-opus-5-5"];
   const refuses = (ctx, world, re) =>
     assert.throws(() => render(ctx, world), (e) => {
       assert.ok(e instanceof Refusal, `expected a Refusal, got ${e}`);
@@ -1018,11 +1018,11 @@ function goodTree() {
   return fixture(
     {
       "fleet.md": FLEET,
-      "launch/claude-opus-5.worker.md": page("model: claude-opus-5[1m]\neffort: xhigh\nmcpServers: [ccc-statusd]"),
+      "launch/claude-opus-5-5.worker.md": page("model: claude-opus-5-5[1m]\neffort: xhigh\nmcpServers: [ccc-statusd]"),
       "launch/heartbeat.md": page("model: claude-sonnet-5[1m]\neffort: medium\ntools: [Bash, Read]"),
       "mcp/ccc-statusd.md": server('["env:CCC_STATUSD_MCP_TOKEN"]', '{"type": "http", "url": "http://localhost:1/mcp"}'),
     },
-    { "launch/default.worker.md": "claude-opus-5.worker.md" },
+    { "launch/default.worker.md": "claude-opus-5-5.worker.md" },
   );
 }
 
@@ -1035,7 +1035,7 @@ describe("unit 5: check", () => {
     // bytes are always priced; tokens only when a daemon is on PATH (none here)
     assert.deepEqual(
       got.notes.map((n) => n.replace(/\d+ bytes/, "N bytes")).sort(),
-      ["launch/claude-opus-5.worker.md: N bytes", "launch/heartbeat.md: N bytes"],
+      ["launch/claude-opus-5-5.worker.md: N bytes", "launch/heartbeat.md: N bytes"],
     );
 
     const bare = fixture({ "fleet.md": FLEET });
@@ -1048,18 +1048,18 @@ describe("unit 5: check", () => {
   const broken = [
     {
       why: "a nested map",
-      files: { "launch/default.md": "---\nmodel: claude-opus-5[1m]\n  deny: [WebSearch]\n---\nbody\n" },
+      files: { "launch/default.md": "---\nmodel: claude-opus-5-5[1m]\n  deny: [WebSearch]\n---\nbody\n" },
       match: /default\.md:3: indented line/,
     },
     {
       why: "an unreachable name",
-      files: { "launch/claude-opus-5.Advisor.md": page("model: claude-opus-5[1m]") },
-      match: /claude-opus-5\.Advisor\.md: .*no ladder ever builds/,
+      files: { "launch/claude-opus-5-5.Advisor.md": page("model: claude-opus-5-5[1m]") },
+      match: /claude-opus-5-5\.Advisor\.md: .*no ladder ever builds/,
     },
     {
       why: "a claude model with no [1m]",
-      files: { "launch/default.md": page("model: claude-opus-5") },
-      match: /default\.md: model 'claude-opus-5' is a claude id without \[1m\]/,
+      files: { "launch/default.md": page("model: claude-opus-5-5") },
+      match: /default\.md: model 'claude-opus-5-5' is a claude id without \[1m\]/,
     },
   ];
 
@@ -1074,7 +1074,7 @@ describe("unit 5: check", () => {
   }
 
   test("fleet.md with a second key is red", (t) => {
-    const dir = fixture({ "fleet.md": "---\ndisallowedTools: [TaskOutput]\nmodel: claude-opus-5[1m]\n---\nb\n" });
+    const dir = fixture({ "fleet.md": "---\ndisallowedTools: [TaskOutput]\nmodel: claude-opus-5-5[1m]\n---\nb\n" });
     cleanup(t, dir);
     assert.match(checkTree(dir, {}).errors.join("\n"), /fleet\.md carries 'model'/);
   });
@@ -1082,9 +1082,9 @@ describe("unit 5: check", () => {
   test("an mcpServers name with no file, an empty body, and a link out of launch/", (t) => {
     const dir = fixture({
       "fleet.md": FLEET,
-      "launch/default.md": page("model: claude-opus-5[1m]\nmcpServers: [nope]"),
-      "launch/default.worker.md": page("model: claude-opus-5[1m]", ""),
-      "outside/evil.md": page("model: claude-opus-5[1m]"),
+      "launch/default.md": page("model: claude-opus-5-5[1m]\nmcpServers: [nope]"),
+      "launch/default.worker.md": page("model: claude-opus-5-5[1m]", ""),
+      "outside/evil.md": page("model: claude-opus-5-5[1m]"),
     });
     cleanup(t, dir);
     symlinkSync("../outside/evil.md", join(dir, "launch", "default.leader.md"));
@@ -1102,20 +1102,20 @@ describe("unit 5: check", () => {
     const dir = fixture(
       {
         "fleet.md": FLEET,
-        "launch/.hidden/body.md": page("model: claude-opus-5\ntools: [Bash]"),
-        "launch/claude-opus-5.md": page("model: claude-opus-5"),
+        "launch/.hidden/body.md": page("model: claude-opus-5-5\ntools: [Bash]"),
+        "launch/claude-opus-5-5.md": page("model: claude-opus-5-5"),
       },
       {
         "launch/default.md": ".hidden/body.md",
         "launch/FABLE_SPENT.md": ".hidden/body.md",
-        "launch/claude-opus.md": "claude-opus-5.md",
+        "launch/claude-opus.md": "claude-opus-5-5.md",
       },
     );
     cleanup(t, dir);
     const got = checkTree(dir, {});
     assert.deepEqual(
       got.errors.map((e) => e.slice(0, e.indexOf(":", 8))).sort(),
-      ["launch/.hidden/body.md", "launch/claude-opus-5.md"],
+      ["launch/.hidden/body.md", "launch/claude-opus-5-5.md"],
       got.errors.join("\n"),
     );
   });
@@ -1138,9 +1138,9 @@ describe("unit 5: check", () => {
   test("a definition above 128 KB warns; a page carrying name is red", (t) => {
     const dir = fixture({
       "fleet.md": FLEET,
-      "launch/default.md": page("model: claude-opus-5[1m]", "x".repeat(129 * 1024)),
-      "launch/default.worker.md": page("model: claude-opus-5[1m]", "x".repeat(120 * 1024)),
-      "launch/heartbeat.md": page('name: heartbeat\nmodel: claude-opus-5[1m]'),
+      "launch/default.md": page("model: claude-opus-5-5[1m]", "x".repeat(129 * 1024)),
+      "launch/default.worker.md": page("model: claude-opus-5-5[1m]", "x".repeat(120 * 1024)),
+      "launch/heartbeat.md": page('name: heartbeat\nmodel: claude-opus-5-5[1m]'),
     });
     cleanup(t, dir);
     const got = checkTree(dir, {});
@@ -1159,9 +1159,9 @@ describe("unit 5: explain", () => {
   test("ticks the hit, shows the resolved path, the rules and the render JSON", (t) => {
     const dir = goodTree();
     cleanup(t, dir);
-    const text = explain({ role: "worker", model: "claude-opus-5" }, { dir, env: {} });
-    assert.match(text, /✓ claude-opus-5\.worker\.md/);
-    assert.match(text, /claude-opus-5\.md/);
+    const text = explain({ role: "worker", model: "claude-opus-5-5" }, { dir, env: {} });
+    assert.match(text, /✓ claude-opus-5-5\.worker\.md/);
+    assert.match(text, /claude-opus-5-5\.md/);
     assert.match(text, /--agent/);
     const json = JSON.parse(text.slice(text.indexOf("{")));
     assert.equal(json.model_matched, true);
@@ -1219,7 +1219,7 @@ describe("unit 5: the CLI", () => {
     const got = runLauncher(process.execPath, [`{"role":"worker"}`, "--dir", dir]);
     assert.equal(got.code, 0);
     const out = JSON.parse(got.out);
-    assert.equal(out.argv[out.argv.indexOf("--agent") + 1], "claude-opus-5.worker");
+    assert.equal(out.argv[out.argv.indexOf("--agent") + 1], "claude-opus-5-5.worker");
     assert.equal(out.model_matched, false);
   });
 
@@ -1232,7 +1232,7 @@ describe("unit 5: the CLI", () => {
   });
 
   test("check exits non-zero on a broken tree", (t) => {
-    const dir = fixture({ "fleet.md": FLEET, "launch/default.md": page("model: claude-opus-5") });
+    const dir = fixture({ "fleet.md": FLEET, "launch/default.md": page("model: claude-opus-5-5") });
     cleanup(t, dir);
     const got = runLauncher(process.execPath, ["check", "--dir", dir]);
     assert.equal(got.code, 1);
@@ -1247,7 +1247,7 @@ describe("unit 5: the CLI", () => {
   // a tree carrying a real error good, exit 0. A validator that silently sees
   // nothing is worse than no validator, so this tree is reached only by a link.
   test("check still sees a broken tree reached through a symlinked ancestor", (t) => {
-    const dir = fixture({ "fleet.md": FLEET, "launch/default.md": page("model: claude-opus-5") });
+    const dir = fixture({ "fleet.md": FLEET, "launch/default.md": page("model: claude-opus-5-5") });
     cleanup(t, dir);
     const outer = mkdtempSync(join(tmpdir(), "launch-cfg-via-"));
     cleanup(t, outer);
@@ -1273,7 +1273,7 @@ describe("unit 5: the CLI", () => {
       assert.equal(got.code, 0, got.err);
       const out = JSON.parse(got.out);
       assert.doesNotMatch(out.trace.join("\n"), /pin:|foreign endpoint/, ctx);
-      assert.equal(definitionOf(out)["claude-opus-5.worker"].model, "claude-opus-5[1m]", ctx);
+      assert.equal(definitionOf(out)["claude-opus-5-5.worker"].model, "claude-opus-5-5[1m]", ctx);
     }
   });
 

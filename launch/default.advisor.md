@@ -1,1 +1,1 @@
-claude-fable-5-1.advisor.md
+claude-opus-5-5.advisor.md

@@ -1,1 +1,1 @@
-claude-fable-5-1.worker.md
+claude-opus-5-5.worker.md
