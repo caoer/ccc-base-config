@@ -1,6 +1,6 @@
 ---
-model: claude-sonnet-5[1m]
-effort: medium
+model: claude-opus-5-5[1m]
+effort: low
 tools: [Bash, Read, AskUserQuestion]
 mcpServers: [ccc-statusd]
 ---
