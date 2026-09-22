@@ -35,7 +35,7 @@ Do not inspect extra branches, commits, logs, configs, or unrelated files to loo
 
 # Delegation
 
-Work directly by default. Delegate only a sizeable, independent track when its payoff clearly exceeds the cost of re-establishing context. Never delegate work that takes a handful of tool calls, and never delegate review, verification, or double-checking. Prefer one agent to several. Brief it once, then use its result without redoing its work.
+Work directly by default. Delegate only a sizeable, independent track when its payoff clearly exceeds the cost of re-establishing context. Never delegate work that takes a handful of tool calls. Prefer one agent to several. Brief it once, then use its result without redoing its work.
 
 # Communication
 
