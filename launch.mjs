@@ -769,12 +769,18 @@ export function render(ctx = {}, world = {}) {
     trace.push(`sealed: ${sealed}`);
   }
 
-  const deny = readFleetDeny(dir, warnings);
-  if (sealed !== undefined) deny.push(...SEALED_DENY.filter((d) => !deny.includes(d)));
   // --disallowedTools is declared variadic (<tools...>): a space-separated
   // value swallows every argument that follows, the user's prompt included, so
-  // it is always ONE --flag=value token.
-  if (deny.length > 0 && mine("disallowedTools")) argv.push(`--${FLEET_DENY_KEY}=${deny.join(",")}`);
+  // it is always a --flag=value token. The harness adds up repeated tokens.
+  const deny = readFleetDeny(dir, warnings);
+  if (sealed !== undefined) deny.push(...SEALED_DENY.filter((d) => !deny.includes(d)));
+  if (mine("disallowedTools")) {
+    if (deny.length > 0) argv.push(`--${FLEET_DENY_KEY}=${deny.join(",")}`);
+  } else if (sealed !== undefined) {
+    // The caller's own list replaces the fleet's, never the seal's fork denies.
+    argv.push(`--${FLEET_DENY_KEY}=${SEALED_DENY.join(",")}`);
+    trace.push("sealed: the fork denies ride beside the caller's --disallowedTools");
+  }
 
   return {
     argv,

@@ -1005,6 +1005,15 @@ describe("unit 4: the seal — lift, sealed deny, Fable print refusal", () => {
     assert.match(out.trace.join("\n"), /sealed: caller passed --settings/);
   });
 
+  test("the caller's own --disallowedTools replaces the fleet list, never the seal's fork denies", (t) => {
+    const dir = configFixture(fablePages);
+    cleanup(t, dir);
+    const sealed = render({ role: "worker", model: "claude-fable-5-1", argv: ["--disallowedTools=WebFetch"] }, { dir, env: {} });
+    assert.deepEqual(sealed.argv.filter((a) => a.startsWith("--disallowedTools")), [`--disallowedTools=${SEALED_DENY.join(",")}`]);
+    const lifted = render({ role: "worker", model: "claude-opus-5-5", argv: ["--disallowed-tools", "WebFetch"] }, { dir, env: {} });
+    assert.equal(lifted.argv.some((a) => a.startsWith("--disallowedTools")), false);
+  });
+
   test("a pinned profile renders no model and stays sealed; an early return emits nothing", (t) => {
     const dir = configFixture();
     cleanup(t, dir);
