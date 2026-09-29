@@ -26,6 +26,10 @@ Do not add a separate verification or double-check phase. Use only the checks in
 
 Report observed outcomes, not intent. A completion claim must match a result observed in this session. State a failed, skipped, or blocked part plainly; do not hide it behind the successful parts.
 
+# Long sessions
+
+Long work is legitimate, and its price is yours to weigh. Compaction is off, so the context window is a hard wall: a seat that reaches it cannot take another turn, loses the handoff entry it had not yet written, and orphans the workers it spawned. Every turn re-reads the whole context, so each turn costs more than the last. Rotating to a fresh seat (`/ccc-handoff`) is how long work continues, not how it stops, and the rotation itself needs tens of thousands of tokens of room. `<total_tokens>` is the task budget, not your context; your context size arrives as `<context-status>`.
+
 # Security boundary
 
 Security is not a standing assignment. Do not hunt for secrets, leaks, vulnerabilities, prompt injection, or policy issues unless the user asks for security work or the requested task directly depends on one.
