@@ -181,6 +181,9 @@ export const withOneM = (model) => (isClaude(model) && !model.includes("[") ? mo
 /** The id without its [1m] postfix — what a filename spells. */
 export const bareId = (model) => (model.endsWith(ONE_M) ? model.slice(0, -ONE_M.length) : model);
 
+/** The Fable family: the alias `fable` or any claude-fable-* id. */
+export const isFable = (model) => bareId(model) === "fable" || bareId(model).startsWith("claude-fable");
+
 /** claude-opus-4-8 → claude-opus-4-8, claude-opus-4, claude-opus, claude */
 export function modelRungs(id) {
   const parts = bareId(id).split("-");
@@ -493,7 +496,35 @@ const FAMILIES = {
   agents: ["--agent", "--agents", "--system-prompt", "--system-prompt-file"],
   effort: ["--effort"],
   disallowedTools: ["--disallowedTools", "--disallowed-tools"],
+  settings: ["--settings"],
 };
+
+/** The profile wrapper seals every seat: its children run on Opus 5.5 whatever
+ *  is asked, and it cannot fork. A seat this launcher starts on a known model
+ *  other than Fable gets the seal lifted by this one settings layer. */
+export const LIFT_SETTINGS = JSON.stringify({ env: { CLAUDE_CODE_SUBAGENT_MODEL_FORCE: "0", CLAUDE_CODE_FORK_SUBAGENT: "1" } });
+
+/** Denied on a sealed seat: the fork paths the seal's switch does not reach. */
+export const SEALED_DENY = [
+  "Agent(fork)",
+  "Skill(invoke-agent-forking)",
+  "Skill(invoke-skill-forking)",
+  "Skill(invoke-agent-background-forking)",
+  "Skill(invoke-skill-background-forking)",
+];
+
+/** Print mode: a headless run. -p is a boolean flag, so a bare token is enough. */
+const isPrint = (options) => options.some((a) => a === "-p" || a === "--print");
+
+/** Print mode on Fable is refused: Fable runs only as a seat. */
+function refuseFablePrint(model, source, env) {
+  if (String(env.UCC_FABLE_PRINT ?? "") === "1") return;
+  throw new Refusal(
+    `print mode on ${model} (${source}): Fable runs only as a seat, never headless. ` +
+      `Fix: run the print job on claude-opus-5-5 or claude-sonnet-5-5, start a full seat on Fable, ` +
+      `or set UCC_FABLE_PRINT=1 in the seat env for a run the user asked for.`,
+  );
+}
 
 /** The launch facts from the caller's raw command line — the ONE place that
  *  reads it. The last --model is the requested model and is REMOVED (the
@@ -603,6 +634,10 @@ export function render(ctx = {}, world = {}) {
     );
   }
 
+  const options = given.includes("--") ? given.slice(0, given.indexOf("--")) : given;
+  const print = isPrint(options);
+  if (print && asked !== undefined && isFable(asked)) refuseFablePrint(asked, "--model", env);
+
   if (ctx.role && !ROLES.includes(ctx.role)) {
     warnings.push(`role '${ctx.role}' is not one of ${ROLES.join(", ")} — launching with the roleless page`);
   }
@@ -625,7 +660,6 @@ export function render(ctx = {}, world = {}) {
     warnings,
   );
 
-  const options = given.includes("--") ? given.slice(0, given.indexOf("--")) : given;
   const mine = (family) => {
     const clash = FAMILIES[family].find((f) => options.some((a) => a === f || a.startsWith(`${f}=`)));
     if (!clash) return true;
@@ -691,6 +725,11 @@ export function render(ctx = {}, world = {}) {
     model = undefined;
     effort = undefined;
   }
+  // The page's own model, when it survives the rules above, refuses print mode
+  // the same way an explicit one did.
+  if (print && asked === undefined && model !== undefined && isFable(model)) {
+    refuseFablePrint(model, `page ${basename(pick.real)}`, env);
+  }
   if (explicitEffort !== undefined) {
     effort = explicitEffort;
     trace.push(`explicit effort: ${explicitEffort}`);
@@ -716,7 +755,22 @@ export function render(ctx = {}, world = {}) {
   const argv = ["--agents", JSON.stringify({ [name]: agent }), "--agent", name];
   if (modelIsExplicit && model !== undefined) argv.push("--model", model); // siftArgv removed the caller's own
   if (effort !== undefined && mine("effort")) argv.push("--effort", effort);
+
+  // ── the seal: lifted for a known model outside the Fable family; every other
+  // seat keeps the wrapper's seal and denies the fork paths it cannot reach ──
+  let sealed;
+  if (model === undefined) sealed = resume ? "resume without --model — the session's model is unknown" : "no model";
+  else if (isFable(model)) sealed = `model ${model} is Fable`;
+  else if (!mine("settings")) sealed = "caller passed --settings";
+  if (sealed === undefined) {
+    argv.push("--settings", LIFT_SETTINGS);
+    trace.push(`lift: model ${model} — --settings turns the subagent force off and the fork on`);
+  } else {
+    trace.push(`sealed: ${sealed}`);
+  }
+
   const deny = readFleetDeny(dir, warnings);
+  if (sealed !== undefined) deny.push(...SEALED_DENY.filter((d) => !deny.includes(d)));
   // --disallowedTools is declared variadic (<tools...>): a space-separated
   // value swallows every argument that follows, the user's prompt included, so
   // it is always ONE --flag=value token.

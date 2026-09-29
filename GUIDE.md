@@ -89,12 +89,15 @@ on-disk agents directory).
 | Situation | Result | Where you see it |
 |---|---|---|
 | `--launch NAME` and no `NAME.md` / `NAME.<role>.md` | **refused, exit 2** | stderr `launch-config: no launch kind` |
+| `-p` / `--print` and the model (explicit `--model`, else the page's) is Fable — `fable` or `claude-fable-*` | **refused, exit 2** — Fable runs only as a seat; `UCC_FABLE_PRINT=1` in the seat env admits a run the user asked for | stderr `REFUSED — print mode on …` |
 | explicit `--model` differs from the profile's `ANTHROPIC_MODEL` | **refused, exit 2** — never a silently replaced model; ask for effort with `--effort` instead | stderr `REFUSED — --model … cannot be served` |
 | profile pins `ANTHROPIC_MODEL` | the page's `model` is dropped; the harness reads the pin natively | trace `pin:` |
 | `ANTHROPIC_BASE_URL` set and not `anthropic.com` | the page's model and effort are dropped (the profile's `settings.json` effortLevel keeps its own); an explicit `--effort` still wins; no `ANTHROPIC_MODEL` warns `provision one` | trace `foreign endpoint:` |
 | explicit claude id without `[1m]` | `[1m]` appended — without it the session reports a 200k window | trace `normalized to` |
 | resume (`-r`, `--resume`, `-c`, `--continue`) | the definition is emitted (prompt and tools), model and effort are not — unless asked explicitly. Neither the kind nor the role is remembered: a resume that must come back as one names it, `ucc-<p> --role leader --resume <id>` | trace `resume/continue:` |
-| caller already passed `--agent`, `--agents`, `--system-prompt[-file]` | nothing emitted, deny list included; `--effort` and `--disallowedTools` each suppress their own flag only | trace `caller passed` |
+| the rendered model is known and not Fable, and the caller passed no `--settings` | **the seal lifts**: `--settings {"env":{"CLAUDE_CODE_SUBAGENT_MODEL_FORCE":"0","CLAUDE_CODE_FORK_SUBAGENT":"1"}}` undoes the profile wrapper's seal, so children run on their definition's model and the seat can fork | trace `lift:` |
+| any other full render — a Fable model, a resume with no `--model`, a pinned or foreign profile, the caller's own `--settings` | **sealed**: the wrapper's environment stands (children on Opus 5.5, no fork), and the one deny flag also carries `Agent(fork)` and the four `Skill(invoke-*-forking)` entries | trace `sealed: <reason>` |
+| caller already passed `--agent`, `--agents`, `--system-prompt[-file]` | nothing emitted, deny list and lift included — the seat keeps the wrapper's seal; `--effort`, `--disallowedTools` and `--settings` each suppress their own flag only | trace `caller passed` |
 | a missing, unreadable or malformed page; no page at all | exit 0, **warns and launches plain**, every caller | stderr `launch-config: …` |
 | the render itself broke (any other non-zero) | the wrapper and an adhoc `ccc-agent spawn` launch plain | stderr `launch-config: render failed` |
 

@@ -37,6 +37,9 @@ import {
   checkTree,
   explain,
   seatEnv,
+  isFable,
+  LIFT_SETTINGS,
+  SEALED_DENY,
 } from "./launch.mjs";
 
 // ─── fixtures ───────────────────────────────────────────────────────────────
@@ -669,6 +672,8 @@ describe("unit 4: the definition and the wire", () => {
       "default.worker",
       "--effort",
       "xhigh",
+      "--settings",
+      LIFT_SETTINGS,
       FLEET_FLAG,
     ]);
     assert.equal(out.model_matched, false);
@@ -935,6 +940,119 @@ describe("unit 4: the definition and the wire", () => {
 // The two refusals are decided before any shortcut or degrade: a caller's own
 // --system-prompt, a missing page and a malformed page each used to return
 // success first, so the wrapper forwarded the incompatible model with exit 0.
+describe("unit 4: the seal — lift, sealed deny, Fable print refusal", () => {
+  const SEALED_FLAG = `${FLEET_FLAG},${SEALED_DENY.join(",")}`;
+  const fablePages = { "launch/claude-fable-5-1.md": page("model: claude-fable-5-1[1m]\neffort: xhigh") };
+
+  test("isFable: the alias and every claude-fable id, with or without [1m]", () => {
+    for (const m of ["fable", "fable[1m]", "claude-fable-5-1", "claude-fable-5-1[1m]"]) assert.equal(isFable(m), true, m);
+    for (const m of ["opus", "sonnet", "claude-opus-5-5[1m]", "claude-sonnet-5-5", "gpt-6-astra"]) assert.equal(isFable(m), false, m);
+  });
+
+  test("an explicit Opus or Sonnet model lifts: one --settings turning the force off and the fork on", (t) => {
+    const dir = configFixture();
+    cleanup(t, dir);
+    for (const model of ["claude-opus-5-5", "claude-sonnet-5-5"]) {
+      const out = render({ role: "worker", model }, { dir, env: {} });
+      assert.equal(out.argv.filter((a) => a === "--settings").length, 1, model);
+      assert.deepEqual(JSON.parse(flag(out.argv, "--settings")), {
+        env: { CLAUDE_CODE_SUBAGENT_MODEL_FORCE: "0", CLAUDE_CODE_FORK_SUBAGENT: "1" },
+      });
+      assert.equal(out.argv.includes(FLEET_FLAG), true, "a lifted seat keeps the fleet list alone");
+      assert.match(out.trace.join("\n"), new RegExp(`lift: model ${model}\\[1m\\]`));
+    }
+  });
+
+  test("the page's own non-Fable model lifts too", (t) => {
+    const dir = configFixture();
+    cleanup(t, dir);
+    const out = render({ role: "worker" }, { dir, env: {} });
+    assert.equal(flag(out.argv, "--settings"), LIFT_SETTINGS);
+  });
+
+  test("a Fable seat stays sealed: no --settings, the five fork denies in the one deny flag", (t) => {
+    const dir = configFixture(fablePages);
+    cleanup(t, dir);
+    for (const ctx of [{ model: "claude-fable-5-1" }, { argv: ["--model", "fable"] }, {}]) {
+      const d = ctx.model || ctx.argv ? dir : configFixture({ "launch/default.worker.md": page("model: claude-fable-5-1[1m]") });
+      if (d !== dir) cleanup(t, d);
+      const out = render({ role: "worker", ...ctx }, { dir: d, env: {} });
+      assert.equal(out.argv.includes("--settings"), false);
+      assert.equal(out.argv.filter((a) => a.startsWith("--disallowedTools")).length, 1);
+      assert.equal(out.argv.includes(SEALED_FLAG), true);
+      assert.match(out.trace.join("\n"), /sealed: model .*fable.* is Fable/);
+    }
+  });
+
+  test("a resume that names no --model stays sealed; one that names it lifts", (t) => {
+    const dir = configFixture();
+    cleanup(t, dir);
+    const bare = render({ role: "worker", argv: ["--resume", "abc"] }, { dir, env: {} });
+    assert.equal(bare.argv.includes("--settings"), false);
+    assert.equal(bare.argv.includes(SEALED_FLAG), true);
+    assert.match(bare.trace.join("\n"), /sealed: resume without --model/);
+    const named = render({ role: "worker", argv: ["--resume", "abc", "--model", "claude-opus-5-5"] }, { dir, env: {} });
+    assert.equal(flag(named.argv, "--settings"), LIFT_SETTINGS);
+  });
+
+  test("the caller's own --settings keeps the seal and gets the sealed deny", (t) => {
+    const dir = configFixture();
+    cleanup(t, dir);
+    const out = render({ role: "worker", model: "claude-opus-5-5", argv: ["--settings", "{}"] }, { dir, env: {} });
+    assert.equal(out.argv.includes("--settings"), false);
+    assert.equal(out.argv.includes(SEALED_FLAG), true);
+    assert.match(out.trace.join("\n"), /caller passed --settings/);
+    assert.match(out.trace.join("\n"), /sealed: caller passed --settings/);
+  });
+
+  test("a pinned profile renders no model and stays sealed; an early return emits nothing", (t) => {
+    const dir = configFixture();
+    cleanup(t, dir);
+    const pinned = render({ role: "worker", profile: "codex" }, { dir, env: { ANTHROPIC_MODEL: "gpt-6-astra[1m]" } });
+    assert.equal(pinned.argv.includes("--settings"), false);
+    assert.match(pinned.trace.join("\n"), /sealed: no model/);
+    assert.deepEqual(render({ role: "worker", model: "claude-opus-5-5", argv: ["--agents", "{}"] }, { dir, env: {} }).argv, []);
+  });
+
+  test("print mode on an explicit Fable model refuses, before every shortcut", (t) => {
+    const dir = configFixture(fablePages);
+    cleanup(t, dir);
+    for (const argv of [["-p", "hi"], ["--print", "hi"], ["-p", "--system-prompt", "."], ["-p", "--model", "fable"]]) {
+      const ctx = argv.includes("--model") ? { argv } : { model: "claude-fable-5-1", argv };
+      assert.throws(() => render({ role: "worker", ...ctx }, { dir, env: {} }), (e) => {
+        assert.ok(e instanceof Refusal, `expected a Refusal for ${argv.join(" ")}`);
+        assert.equal(e.exitCode, 2);
+        assert.match(e.message, /print mode on .*fable.*Fable runs only as a seat/);
+        assert.match(e.message, /UCC_FABLE_PRINT=1/);
+        return true;
+      });
+    }
+  });
+
+  test("print mode on the page's Fable model refuses; -p after -- is the user's text", (t) => {
+    const dir = configFixture({ "launch/default.worker.md": page("model: claude-fable-5-1[1m]") });
+    cleanup(t, dir);
+    assert.throws(() => render({ role: "worker", argv: ["-p", "hi"] }, { dir, env: {} }), /print mode on claude-fable-5-1\[1m\] \(page default\.worker\.md\)/);
+    const interactive = render({ role: "worker", argv: ["--", "-p"] }, { dir, env: {} });
+    assert.equal(flag(interactive.argv, "--agent"), "default.worker");
+  });
+
+  test("UCC_FABLE_PRINT=1 in the seat env admits a Fable print run, sealed", (t) => {
+    const dir = configFixture(fablePages);
+    cleanup(t, dir);
+    const out = render({ role: "worker", model: "claude-fable-5-1", argv: ["-p", "hi"] }, { dir, env: { UCC_FABLE_PRINT: "1" } });
+    assert.equal(flag(out.argv, "--model"), "claude-fable-5-1[1m]");
+    assert.equal(out.argv.includes(SEALED_FLAG), true);
+  });
+
+  test("print mode on Opus renders and lifts", (t) => {
+    const dir = configFixture();
+    cleanup(t, dir);
+    const out = render({ role: "worker", model: "claude-opus-5-5", argv: ["-p", "hi"] }, { dir, env: {} });
+    assert.equal(flag(out.argv, "--settings"), LIFT_SETTINGS);
+  });
+});
+
 describe("unit 4: refusals come before every shortcut", () => {
   const pinned = { ANTHROPIC_MODEL: "gpt-6-astra[1m]" };
   const mismatch = ["--model", "claude-opus-5-5"];
