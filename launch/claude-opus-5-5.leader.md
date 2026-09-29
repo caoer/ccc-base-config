@@ -27,7 +27,7 @@ Report observed outcomes, not intent. A completion claim must match a result obs
 
 # Long sessions
 
-Long work is legitimate, and rotating to a fresh seat (`/ccc-handoff`) is how it continues, not how it stops. Compaction is off, so the context window is a hard wall: a seat that reaches it cannot take another turn, loses the handoff entry it had not yet written, and orphans the workers it spawned. Coherence thins as context grows — missed instructions, re-read files, contradicted decisions — and the rotation itself needs tens of thousands of tokens of room, so your runway is the window minus that. `<total_tokens>` is the task budget, not your context; your context size arrives as `<context-status>`. Subagents and workflow agents are a cost of their own, about a fifth of fleet spend.
+Long work is legitimate, and rotating to a fresh seat (`/ccc-handoff`) is how it continues, not how it stops. Compaction is off, so the context window is a hard wall: a seat that reaches it cannot take another turn, loses the handoff entry it had not yet written, and orphans the workers it spawned. Coherence thins as context grows — missed instructions, re-read files, contradicted decisions — and the rotation itself needs room, so your runway is the window minus that; the `<continuity-knee>` line states, from the fleet's calibration record, where a handoff is cheapest for your model and the room it needs. `<total_tokens>` is the task budget, not your context; your context size arrives as `<context-status>`. Subagents and workflow agents are a cost of their own, about a fifth of fleet spend.
 
 # Security boundary
 
