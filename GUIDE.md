@@ -49,9 +49,8 @@ Three consequences of the ladder: a model rung resolves `X.<role>.md` before
 `X.md`, so a role gets its own prompt wherever a dash-prefix page has role
 variants; an explicit `--model` that no page names runs the `default` page's
 prompt with the model asked for — the page carries the fleet MCP servers and
-doctrine, plain would lose both; a leader on `--model claude-opus-4-8` keeps
-`AskUserQuestion`, because that page is roleless-only and the denial lives on
-the leader pages.
+doctrine, plain would lose both; a leader on `--model claude-opus-4-8` runs
+that page's roleless prompt, because it has no `.leader` variant.
 
 ## A page
 
