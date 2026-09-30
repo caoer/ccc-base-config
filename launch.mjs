@@ -519,13 +519,7 @@ const FAMILIES = {
 export const LIFT_SETTINGS = JSON.stringify({ env: { CLAUDE_CODE_SUBAGENT_MODEL_FORCE: "0", CLAUDE_CODE_FORK_SUBAGENT: "1" } });
 
 /** Denied on a sealed seat: the fork paths the seal's switch does not reach. */
-export const SEALED_DENY = [
-  "Agent(fork)",
-  "Skill(invoke-agent-forking)",
-  "Skill(invoke-skill-forking)",
-  "Skill(invoke-agent-background-forking)",
-  "Skill(invoke-skill-background-forking)",
-];
+export const SEALED_DENY = ["Agent(fork)"];
 
 /** Print mode: a headless run. -p is a boolean flag, so a bare token is enough. */
 const isPrint = (options) => options.some((a) => a === "-p" || a === "--print");
