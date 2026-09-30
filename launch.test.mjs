@@ -11,7 +11,7 @@
 
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync, chmodSync, statSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync, chmodSync, statSync, readFileSync, existsSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -40,6 +40,8 @@ import {
   isFable,
   LIFT_SETTINGS,
   SEALED_DENY,
+  LAUNCH_PLUGIN,
+  PLUGIN_TTL_MS,
 } from "./launch.mjs";
 
 // ─── fixtures ───────────────────────────────────────────────────────────────
@@ -619,7 +621,21 @@ const flag = (argv, name) => {
   const i = argv.indexOf(name);
   return i >= 0 ? argv[i + 1] : undefined;
 };
-const definitionOf = (out) => JSON.parse(flag(out.argv, "--agents"));
+/** The definition a render carries — the argv JSON, or the plugin dir's agent
+ *  file plus its servers.json read back into the same shape. */
+const definitionOf = (out) => {
+  if (out.argv.includes("--agents")) return JSON.parse(flag(out.argv, "--agents"));
+  const root = flag(out.argv, "--plugin-dir");
+  const name = flag(out.argv, "--agent").slice(LAUNCH_PLUGIN.length + 1);
+  const { front, body } = parsePage(readFileSync(join(root, "agents", `${name}.md`), "utf8"));
+  const { name: _named, ...agent } = front;
+  agent.prompt = body;
+  const servers = join(root, "servers.json");
+  if (existsSync(servers)) {
+    agent.mcpServers = Object.entries(JSON.parse(readFileSync(servers, "utf8")).mcpServers).map(([k, v]) => ({ [k]: v }));
+  }
+  return { [name]: agent };
+};
 
 describe("unit 4: argv sifting", () => {
   test("reads the model, effort, resume and kind out of the caller's raw argv", () => {
@@ -1129,14 +1145,20 @@ function whichBin(name) {
   return null;
 }
 
+/** The CLI writes plugin dirs under $UCC_HOME: a caller that names none gets
+ *  a throwaway home, never the real one. */
 function runLauncher(bin, args, env = {}) {
+  const scratch = env.UCC_HOME === undefined ? mkdtempSync(join(tmpdir(), "launch-home-")) : undefined;
+  const home = scratch === undefined ? {} : { UCC_HOME: scratch };
   try {
     return {
       code: 0,
-      out: execFileSync(bin, [LAUNCHER, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, ...env } }),
+      out: execFileSync(bin, [LAUNCHER, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, ...home, ...env } }),
     };
   } catch (e) {
     return { code: e.status, out: String(e.stdout ?? ""), err: String(e.stderr ?? "") };
+  } finally {
+    if (scratch !== undefined) rmSync(scratch, { recursive: true, force: true });
   }
 }
 
@@ -1346,7 +1368,8 @@ describe("unit 5: the CLI", () => {
     const got = runLauncher(process.execPath, [`{"role":"worker"}`, "--dir", dir]);
     assert.equal(got.code, 0);
     const out = JSON.parse(got.out);
-    assert.equal(out.argv[out.argv.indexOf("--agent") + 1], "claude-opus-5-5.worker");
+    assert.equal(out.argv[out.argv.indexOf("--agent") + 1], "ucc-launch:claude-opus-5-5.worker");
+    assert.equal(out.argv.includes("--agents"), false);
     assert.equal(out.model_matched, false);
   });
 
@@ -1414,10 +1437,94 @@ describe("unit 5: the CLI", () => {
     const dir = goodTree();
     cleanup(t, dir);
     const args = ["explain", "--dir", dir, "--role", "worker", "--profile", "does_bannock_6u"];
-    const a = runLauncher(node, args);
-    const b = runLauncher(bun, args);
+    const a = runLauncher(node, args, { UCC_HOME: dir });
+    const b = runLauncher(bun, args, { UCC_HOME: dir });
     assert.equal(a.code, 0, a.err);
     assert.equal(b.code, 0, b.err);
     assert.equal(a.out, b.out);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Unit 6 — the plugin dir: the definition on disk, the argv naming it
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("unit 6: the plugin dir", () => {
+  const withServer = () =>
+    configFixture({
+      "launch/default.worker.md": page("model: claude-opus-5-5[1m]\neffort: xhigh\nmcpServers: [one]\ntools: [Bash, Read]", "You are a worker.\n"),
+      "mcp/one.md": server("[]", '{"type": "http", "url": "http://x/mcp"}'),
+    });
+
+  test("the definition goes to a plugin dir; argv carries its path, the agent and the server file", (t) => {
+    const dir = withServer();
+    cleanup(t, dir);
+    const out = render({ role: "worker" }, { dir, env: {}, pluginRoot: join(dir, "plugins") });
+    const root = flag(out.argv, "--plugin-dir");
+    assert.match(root, new RegExp(`^${join(dir, "plugins")}/[0-9a-f]{12}$`));
+    assert.deepEqual(out.argv, [
+      "--plugin-dir",
+      root,
+      "--agent",
+      "ucc-launch:default.worker",
+      `--mcp-config=${join(root, "servers.json")}`,
+      "--effort",
+      "xhigh",
+      "--settings",
+      LIFT_SETTINGS,
+      FLEET_FLAG,
+    ]);
+    assert.deepEqual(definitionOf(out)["default.worker"], {
+      description: "launch page default.worker",
+      tools: ["Bash", "Read"],
+      model: "claude-opus-5-5[1m]",
+      prompt: "You are a worker.\n",
+      mcpServers: [{ one: { type: "http", url: "http://x/mcp" } }],
+    });
+    assert.equal(JSON.parse(readFileSync(join(root, ".claude-plugin", "plugin.json"), "utf8")).name, "ucc-launch");
+    assert.equal(statSync(join(root, "servers.json")).mode & 0o777, 0o600);
+    assert.equal(statSync(root).mode & 0o777, 0o700);
+  });
+
+  test("identical renders share one dir; a changed page gets its own", (t) => {
+    const dir = withServer();
+    cleanup(t, dir);
+    const world = { dir, env: {}, pluginRoot: join(dir, "plugins") };
+    const first = flag(render({ role: "worker" }, world).argv, "--plugin-dir");
+    assert.equal(flag(render({ role: "worker" }, world).argv, "--plugin-dir"), first);
+    writeFileSync(join(dir, "launch", "default.worker.md"), page("model: claude-opus-5-5[1m]", "You are another worker.\n"));
+    const changed = render({ role: "worker" }, world);
+    assert.notEqual(flag(changed.argv, "--plugin-dir"), first);
+    assert.equal(changed.argv.some((a) => a.startsWith("--mcp-config")), false);
+  });
+
+  test("a root that cannot be written falls back to the argv JSON form", (t) => {
+    const dir = configFixture({ blocker: "a file, not a dir" });
+    cleanup(t, dir);
+    const out = render({ role: "worker" }, { dir, env: {}, pluginRoot: join(dir, "blocker") });
+    assert.equal(flag(out.argv, "--agent"), "default.worker");
+    assert.equal(definitionOf(out)["default.worker"].prompt, "You are a worker.\n");
+    assert.match(out.trace.join("\n"), /argv fallback: .*could not be written/);
+  });
+
+  test("a key a plugin agent ignores keeps the argv JSON form", (t) => {
+    const dir = configFixture({ "launch/default.worker.md": page("permissionMode: plan") });
+    cleanup(t, dir);
+    const out = render({ role: "worker" }, { dir, env: {}, pluginRoot: join(dir, "plugins") });
+    assert.equal(definitionOf(out)["default.worker"].permissionMode, "plan");
+    assert.match(out.trace.join("\n"), /argv fallback: a plugin agent ignores permissionMode/);
+    assert.equal(existsSync(join(dir, "plugins")), false);
+  });
+
+  test("a render sweeps sibling dirs unused past the TTL and keeps fresh ones", (t) => {
+    const dir = configFixture();
+    cleanup(t, dir);
+    const root = join(dir, "plugins");
+    for (const name of ["old", "fresh"]) mkdirSync(join(root, name), { recursive: true });
+    const stale = (Date.now() - PLUGIN_TTL_MS - 60_000) / 1000;
+    utimesSync(join(root, "old"), stale, stale);
+    render({ role: "worker" }, { dir, env: {}, pluginRoot: root });
+    assert.equal(existsSync(join(root, "old")), false);
+    assert.equal(existsSync(join(root, "fresh")), true);
   });
 });

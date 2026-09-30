@@ -8,10 +8,24 @@
 //
 // Plain JS, Node stdlib only — it runs unchanged on the shared node and on bun.
 
-import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  renameSync,
+  rmSync,
+  statSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { basename, isAbsolute, join, relative, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 
 /** this file's own directory — the config dir: launch/, mcp/, fleet.md */
 export const HERE = fileURLToPath(new URL(".", import.meta.url)).replace(/\/$/, "");
@@ -593,6 +607,83 @@ export function readFleetDeny(dir, warnings = []) {
 /** Keys the launcher consumes itself — everything else reaches the harness. */
 const CONSUMED = new Set(["description", "model", "effort", "mcpServers", "name"]);
 
+/** The plugin a definition rides in. Claude Code names a plugin's agent
+ *  `<plugin>:<agent>`, so the seat's agent_type reads `ucc-launch:<page stem>`. */
+export const LAUNCH_PLUGIN = "ucc-launch";
+/** A plugin dir no render has used for this long is swept by the next render. */
+export const PLUGIN_TTL_MS = 7 * 24 * 3600 * 1000;
+/** Keys a plugin agent ignores; a definition carrying one rides argv as JSON. */
+const PLUGIN_IGNORED = ["hooks", "permissionMode"];
+
+/** The definition → the argv that carries it. Given a plugin root, the
+ *  definition is written to a content-addressed plugin dir and the argv only
+ *  names it, so a seat's ps line holds no prompt prose. The MCP servers go in a
+ *  --mcp-config file beside it: a plugin agent drops `mcpServers`, and a
+ *  plugin's own .mcp.json would rename every server's tools. With no root, or
+ *  a dir that cannot be written, the whole definition rides argv as JSON. */
+function definitionArgv(name, agent, root, trace) {
+  const inline = () => ["--agents", JSON.stringify({ [name]: agent }), "--agent", name];
+  if (root === undefined) return inline();
+  const ignored = PLUGIN_IGNORED.filter((k) => k in agent);
+  if (ignored.length > 0) {
+    trace.push(`argv fallback: a plugin agent ignores ${ignored.join(", ")} — the definition rides argv`);
+    return inline();
+  }
+  const { prompt, mcpServers, ...front } = agent;
+  // JSON is YAML: every frontmatter value is written as a JSON scalar or list.
+  const head = Object.entries({ name, ...front }).map(([k, v]) => `${k}: ${JSON.stringify(v)}`);
+  const files = {
+    ".claude-plugin/plugin.json": `${JSON.stringify({ name: LAUNCH_PLUGIN, description: "launch pages rendered by launch.mjs" })}\n`,
+    [`agents/${name}.md`]: `---\n${head.join("\n")}\n---\n${prompt}`,
+  };
+  if (mcpServers !== undefined) files["servers.json"] = `${JSON.stringify({ mcpServers: Object.assign({}, ...mcpServers) })}\n`;
+  const hash = createHash("sha256");
+  for (const [rel, text] of Object.entries(files)) hash.update(`${rel}\0${text}\0`);
+  const target = join(root, hash.digest("hex").slice(0, 12));
+  try {
+    materialize(root, target, files);
+  } catch (e) {
+    trace.push(`argv fallback: ${target} could not be written (${e.message}) — the definition rides argv`);
+    return inline();
+  }
+  trace.push(`plugin: ${target}`);
+  const argv = ["--plugin-dir", target, "--agent", `${LAUNCH_PLUGIN}:${name}`];
+  // --mcp-config is variadic: only the =value form keeps it off the next argument.
+  if (mcpServers !== undefined) argv.push(`--mcp-config=${join(target, "servers.json")}`);
+  return argv;
+}
+
+/** Write `files` into `target` once, through a temp dir renamed into place, so
+ *  a concurrent identical launch sees no dir or a whole one. Owner-only modes:
+ *  servers.json carries bearer tokens. Touches `target`, then sweeps the
+ *  siblings no render has used within PLUGIN_TTL_MS. */
+function materialize(root, target, files) {
+  mkdirSync(root, { recursive: true, mode: 0o700 });
+  if (!existsSync(target)) {
+    const tmp = mkdtempSync(join(root, ".tmp-"));
+    try {
+      for (const [rel, text] of Object.entries(files)) {
+        mkdirSync(join(tmp, rel, ".."), { recursive: true, mode: 0o700 });
+        writeFileSync(join(tmp, rel), text, { mode: 0o600 });
+      }
+      renameSync(tmp, target);
+    } catch (e) {
+      rmSync(tmp, { recursive: true, force: true });
+      if (!existsSync(target)) throw e; // otherwise a concurrent launch won the rename
+    }
+  }
+  const now = Date.now();
+  utimesSync(target, now / 1000, now / 1000);
+  try {
+    for (const entry of readdirSync(root)) {
+      const path = join(root, entry);
+      if (path !== target && now - statSync(path).mtimeMs > PLUGIN_TTL_MS) rmSync(path, { recursive: true, force: true });
+    }
+  } catch {
+    // a failed sweep costs disk only; the next render sweeps again
+  }
+}
+
 /** Render one launch → { argv, model_matched, trace, warnings, … }. Throws
  *  Refusal (exit 2) for an unknown --launch kind or a model the profile's pin
  *  cannot serve; every other failure warns and renders nothing. */
@@ -752,7 +843,7 @@ export function render(ctx = {}, world = {}) {
   }
 
   // ── the argv ──────────────────────────────────────────────────────────────
-  const argv = ["--agents", JSON.stringify({ [name]: agent }), "--agent", name];
+  const argv = definitionArgv(name, agent, world.pluginRoot, trace);
   if (modelIsExplicit && model !== undefined) argv.push("--model", model); // siftArgv removed the caller's own
   if (effort !== undefined && mine("effort")) argv.push("--effort", effort);
 
@@ -921,7 +1012,7 @@ function checkPage({ real: path, text }, entry, mcpDir, env, errors, warnings, n
   if (size > DEFINITION_CEILING) {
     warnings.push(
       `launch/${entry}: the definition is ${Math.round(size / 1024)} KB — above the ${DEFINITION_CEILING / 1024} KB ` +
-        `argv-element ceiling; a launch this large hits E2BIG (the escape is the on-disk agents directory)`,
+        `argv-element ceiling; a launch this large hits E2BIG whenever it falls back to the argv JSON form`,
     );
   }
   const bytes = Buffer.byteLength(text);
@@ -1097,7 +1188,8 @@ export function main(args, env = process.env) {
     return got.errors.length === 0 ? 0 : 1;
   }
 
-  const world = { dir, env: seatEnv(parsed.ctx.profile, env) };
+  const home = env.UCC_HOME ?? `${env.HOME}/.local/share/ucc`;
+  const world = { dir, env: seatEnv(parsed.ctx.profile, env), pluginRoot: join(home, "cache", "launch-plugins") };
   try {
     if (parsed.verb === "explain") process.stdout.write(explain(parsed.ctx, world));
     else process.stdout.write(`${renderJSON(render(parsed.ctx, world))}\n`);

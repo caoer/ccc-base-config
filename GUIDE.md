@@ -70,8 +70,24 @@ line, by `check` and at launch. The launcher consumes `model`, `effort` and
 `mcpServers`; every other key passes into the definition verbatim
 (`description`, `tools`, `disallowedTools`, `skills`, `permissionMode`,
 `maxTurns`, …). Never write `name`: the definition is named after the resolved
-real file's stem, so `agent_type` in a hook payload names the page at
-`$UCC_HOME/config/launch/<agent_type>.md`.
+real file's stem, so `agent_type` in a hook payload reads `ucc-launch:<stem>`
+and names the page at `$UCC_HOME/config/launch/<stem>.md`.
+
+The definition reaches the harness as a file, not as argv prose. The render
+writes it to `$UCC_HOME/cache/launch-plugins/<sha256[:12]>/` — a plugin named
+`ucc-launch` holding `agents/<stem>.md` — plus `servers.json` beside it for the
+page's MCP servers, and emits `--plugin-dir <dir> --agent ucc-launch:<stem>
+--mcp-config=<dir>/servers.json`. The servers ride `--mcp-config` because a
+plugin agent drops `mcpServers` and a plugin's own `.mcp.json` renames every
+server's tools. The dir is content-addressed and written by atomic rename, so
+identical launches share it; files are owner-only (`servers.json` carries
+bearer tokens); each render touches its dir and removes siblings unused for 7
+days. A seat's `ps` line carries no system prompt — only paths, flags and
+the spawn prompt.
+
+The definition rides argv as `--agents <json> --agent <stem>` instead when the
+dir cannot be written (trace `argv fallback:`) or the page carries
+`permissionMode` or `hooks`, which a plugin agent ignores.
 
 An `mcp/<name>.md` gate: `env:NAME`, `env:NAME~text`, `exec:PATH`, `bin:NAME`,
 `file:PATH`; `!` negates, ` | ` is OR inside one string, separate strings AND.
@@ -81,8 +97,8 @@ a launch warning.
 
 `check` prices every page — `launch/x.md: 12224 bytes, 3798 tokens`, the token
 column only when `ccc-statusd` is on PATH — and warns when the definition's
-JSON passes 128 KB, Linux's per-argv-element limit (the escape is the profile's
-on-disk agents directory).
+JSON passes 128 KB, Linux's per-argv-element limit, which only the argv
+fallback can hit.
 
 ## What reaches the harness
 
