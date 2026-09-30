@@ -15,7 +15,7 @@
 # keeps herdr's stored value until the lease expires. 80-char clamp per value.
 
 painter = dict(
-    enabled = True,                   # kill switch for BOTH writers (identity + AUQ)
+    enabled = True,                   # kill switch for every writer (identity, AUQ, resume)
     method = "pane.report_metadata",  # herdr JSON-RPC method
     agent = "claude",                 # herdr agent label on reports
     ttl = "6h",                       # identity lease, duration STRING ("0" = live until replaced)
