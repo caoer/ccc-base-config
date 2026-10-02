@@ -642,6 +642,14 @@ function materialize(root, target, files) {
   }
 }
 
+/** $UCC_HOME/work when it exists; --add-dir is a variadic flag, so it rides as
+ *  one --add-dir=<path> token. */
+export function workRoot(env = {}) {
+  if (!env.UCC_HOME && !env.HOME) return undefined;
+  const dir = join(env.UCC_HOME ?? `${env.HOME}/.local/share/ucc`, "work");
+  return existsSync(dir) ? dir : undefined;
+}
+
 /** Render one launch → { argv, model_matched, trace, warnings, … }. Throws
  *  Refusal (exit 2) for an unknown --launch kind or a model the profile's pin
  *  cannot serve; every other failure warns and renders nothing. */
@@ -828,6 +836,15 @@ export function render(ctx = {}, world = {}) {
     // The caller's own list replaces the fleet's, never the seal's fork denies.
     argv.push(`--${FLEET_DENY_KEY}=${SEALED_DENY.join(",")}`);
     trace.push("sealed: the fork denies ride beside the caller's --disallowedTools");
+  }
+
+  // Every seat may read the agent work root, so a Workflow script staged in the
+  // seat's own work folder is admitted. A launch does not know its seat id yet,
+  // so the grant is the root, not the folder.
+  const work = workRoot(env);
+  if (work !== undefined) {
+    argv.push(`--add-dir=${work}`);
+    trace.push(`work root: --add-dir=${work}`);
   }
 
   return {

@@ -639,6 +639,31 @@ test("unit 4: -- ends the family-clash scan too", (t) => {
   assert.equal(out.argv.includes(FLEET_FLAG), true);
 });
 
+describe("unit 4: the work root", () => {
+  test("an existing $UCC_HOME/work rides as the last token, --add-dir=<path>", (t) => {
+    const dir = configFixture();
+    cleanup(t, dir);
+    const home = mkdtempSync(join(tmpdir(), "launch-home-"));
+    t.after(() => rmSync(home, { recursive: true, force: true }));
+    mkdirSync(join(home, ".local/share/ucc/work"), { recursive: true });
+    const out = render({ role: "worker" }, { dir, env: { HOME: home } });
+    assert.equal(out.argv.at(-1), `--add-dir=${join(home, ".local/share/ucc/work")}`);
+    const ucc = join(home, "ucc-home");
+    mkdirSync(join(ucc, "work"), { recursive: true });
+    assert.equal(render({ role: "worker" }, { dir, env: { HOME: home, UCC_HOME: ucc } }).argv.at(-1), `--add-dir=${join(ucc, "work")}`);
+  });
+
+  test("no work dir, or no home at all: no --add-dir", (t) => {
+    const dir = configFixture();
+    cleanup(t, dir);
+    const home = mkdtempSync(join(tmpdir(), "launch-home-"));
+    t.after(() => rmSync(home, { recursive: true, force: true }));
+    for (const env of [{}, { HOME: home }]) {
+      assert.equal(render({ role: "worker" }, { dir, env }).argv.some((a) => a.startsWith("--add-dir")), false);
+    }
+  });
+});
+
 describe("unit 4: the definition and the wire", () => {
   test("the output contract: agents, agent, effort and the fleet deny list", (t) => {
     const dir = configFixture();
