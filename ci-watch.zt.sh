@@ -30,7 +30,8 @@ Flags go in any order. An unknown flag exits 2 rather than being ignored.
 The exit code IS the verdict:
   0  green — every step success or skipped
   1  RED — a step did not succeed; its log is printed
-  2  no verdict — could not resolve or observe a pipeline
+  2  no verdict — could not resolve or observe a pipeline, or Woodpecker
+     refused the token (401/403)
   3  still running at the timeout (states printed, nothing killed) — NOT green
   4  KILLED — cancelled or superseded by a newer commit. NOT a test failure and
      NOT green; the cancelled steps' logs are not evidence.
@@ -215,16 +216,24 @@ fi
 
 # Newest pipeline whose commit is $sha. `pipeline ls` prints a table; the
 # commit is not in it, so ask the API for the mapping.
+# The fetch is its own step: piped straight into the parser, a refused request
+# (401: the token was rejected) made the parser exit 1 under pipefail, and
+# exit 1 reads as a red pipeline.
 if [ -z "$pipeline" ]; then
-  pipeline=$(curl -fsS -H "Authorization: Bearer $WOODPECKER_TOKEN" \
-    "$WOODPECKER_SERVER/api/repos/$REPO/pipelines?perPage=50" |
+  if ! list=$(curl -fsS -H "Authorization: Bearer $WOODPECKER_TOKEN" \
+      "$WOODPECKER_SERVER/api/repos/$REPO/pipelines?perPage=50" 2>&1); then
+    echo "ci-watch: cannot read the pipelines of repo $REPO: $list" >&2
+    echo "  401 or 403: WOODPECKER_TOKEN was rejected — check it, then run again." >&2
+    exit 2
+  fi
+  pipeline=$(printf '%s' "$list" |
     python3 -c '
 import json,sys
 sha=sys.argv[1]
 for p in json.load(sys.stdin):
     if p["commit"].startswith(sha) or sha.startswith(p["commit"]):
         print(p["number"]); break
-' "$sha")
+' "$sha") || pipeline=""
 fi
 [ -n "$pipeline" ] || { echo "no pipeline found for $sha" >&2; exit 2; }
 

@@ -41,6 +41,9 @@ T
 EOF
 cat >"$tmp/bin/curl" <<'EOF'
 #!/usr/bin/env bash
+if [ "$FAKE_PIPELINE" = unauthorized ]; then
+  echo "curl: (22) The requested URL returned error: 401" >&2; exit 22
+fi
 status=running; [ "$FAKE_PIPELINE" = done ] && status=success
 case "$*" in
   *"/pipelines?perPage"*) echo "[{\"number\":2177,\"commit\":\"8c957a7f0000\",\"status\":\"$status\"}]" ;;
@@ -79,6 +82,10 @@ sleep 1
 kill -TERM "$pid"
 wait "$pid"
 check "terminated while pending is not green" 143 "ci-watch: VERDICT=143 " $? "$tmp/term.out"
+
+# 4. Woodpecker rejects the token (401): no verdict, never red.
+FAKE_PIPELINE=unauthorized "$script" --sha 8c957a7f >"$tmp/401.out" 2>&1
+check "rejected token is no verdict" 2 "ci-watch: VERDICT=2 " $? "$tmp/401.out"
 
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 exit "$fails"
