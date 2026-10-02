@@ -10,7 +10,6 @@ launch/` is the whole vocabulary and `explain` prints the list it walked.
 | `launch/*.md` | One agent definition per launch kind; the body, verbatim, is the system prompt. Symlinks live here too. |
 | `mcp/*.md` | One MCP server each: the gate in frontmatter, the server object in the body's first JSON fence. |
 | `fleet.md` | The fleet-wide deny list — one key, applied to every launch on every machine. |
-| `pools.local.json` | Per-machine set membership. Gitignored, never shipped, never written by the installer. |
 | `launch.mjs` | The launcher: `explain`, `check`, and the render the wrappers call. |
 | `launch.test.mjs` | `node --test launch.test.mjs` — the same file runs under `bun test`. |
 
@@ -33,10 +32,9 @@ file that exists wins:
 2. `<model>`, then each shorter dash-prefix (`claude-opus-4-8` →
    `claude-opus-4` → `claude-opus` → `claude`);
 3. `@<profile>`;
-4. each `<SET>` the profile belongs to — listed in `pools.local.json` (key
-   order), or `FABLE_SPENT` derived from the profile's own `ratelimit.json` (a
-   live `7d_oi` window that is refused or above 0.9 utilization; the trace
-   line names the source);
+4. each `<SET>` the profile belongs to — `FABLE_SPENT`, derived from the
+   profile's own `ratelimit.json` (a live `7d_oi` window that is refused or
+   above 0.9 utilization; the trace line names the reading);
 5. `default`.
 
 A name is one condition token plus an optional role: a bare lowercase word is
@@ -148,13 +146,11 @@ The target resolves inside `launch/`, its role suffix matches the link's, and
 the definition is named after the target's stem — one page with several
 addresses, never a copy that drifts.
 
-**A set** is membership, from two sources. `{ "FABLE_SPENT": ["some_profile_3x"] }`
-in `pools.local.json` routes that account to `FABLE_SPENT.<role>.md` on this
-machine; `FABLE_SPENT` is also derived, with no entry, from the profile's own
-`ratelimit.json` when its `7d_oi` window is live and refused or above 0.9
-utilization — the trace line says which source put the profile in the set.
-Either source alone is the whole act. There is no `+`, no rules file, no
-`match:` or `priority:`, and no page any page inherits from.
+**A set** is membership derived from the profile's own state: `FABLE_SPENT`
+holds a profile whose `ratelimit.json` shows its `7d_oi` window live and
+refused or above 0.9 utilization, and routes it to `FABLE_SPENT.<role>.md` —
+the trace line names the reading. There is no membership file, no `+`, no
+rules file, no `match:` or `priority:`, and no page any page inherits from.
 
 ### Try a prompt on yourself
 
@@ -204,17 +200,16 @@ root `grey(undeclared)` with every read refusing.
 
 The ccc-statusd repo vendors this directory at `worker/launch-config/`; the
 installer extracts it to `$UCC_HOME/config/`, symlinks included. Nothing user-
-or machine-specific ships — `pools.local.json` and the `MERIDIAN.md`
-declaration stay local. A git checkout at `$UCC_HOME/config/.git` wins: the
+or machine-specific ships — the `MERIDIAN.md` declaration stays local. A git checkout at `$UCC_HOME/config/.git` wins: the
 installer leaves it alone, so on such a host you edit the checkout and vendor
 it back in the same change:
 
 ```bash
 node launch.mjs check && node --test launch.test.mjs   # then commit here: the sync names this sha
 ./sync-launch-config.sh --dry-run                      # name what drifted, change nothing
-./sync-launch-config.sh                                # copy the bundle (never pools.local.json), test there, path-scoped commit
+./sync-launch-config.sh                                # copy the bundle, test there, path-scoped commit
 cd /path/to/ccc-statusd/worker && npm run upload:config   # publish templates/launch-config.tar.gz without a release
-ucc-cli config update                                  # an installed machine: pages + launcher; pools.local.json and checkouts preserved
+ucc-cli config update                                  # an installed machine: pages + launcher; checkouts preserved
 ```
 
 On a host, the **installer runs first and `ucc-cli config update` second**:

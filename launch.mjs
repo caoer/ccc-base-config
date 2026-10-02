@@ -223,44 +223,8 @@ export function candidateNames({ kind, model, profile, sets = [], role } = {}) {
   return [...new Set(names)];
 }
 
-/** pools.local.json — per-user set membership the installer never writes. A
- *  malformed file must never break launching: every problem is one warning and
- *  an empty table. */
-export function readLocalPools(path, warnings = []) {
-  if (!existsSync(path)) return {};
-  let parsed;
-  try {
-    parsed = JSON.parse(readFileSync(path, "utf8"));
-  } catch (e) {
-    warnings.push(`${path} is not valid JSON — no sets (${e.message})`);
-    return {};
-  }
-  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-    warnings.push(`${path} must be an object of SET → [profiles] — no sets`);
-    return {};
-  }
-  const out = {};
-  for (const [name, members] of Object.entries(parsed)) {
-    if (!Array.isArray(members) || members.some((m) => typeof m !== "string")) {
-      warnings.push(`${path}: set '${name}' is not an array of profile names — skipped`);
-      continue;
-    }
-    out[name] = members;
-  }
-  return out;
-}
-
-/** The sets this profile belongs to, in the file's key order. */
-export function setsFor(profile, pools) {
-  if (!profile) return [];
-  return Object.entries(pools)
-    .filter(([, members]) => members.includes(profile))
-    .map(([name]) => name);
-}
-
-/** FABLE_SPENT is also DERIVED: a profile whose ratelimit.json reports the
- *  fable meter (7d_oi) spent belongs to the set whatever pools.local.json says.
- *  The predicate is pick-cli's for an 'oi' launch — a window whose reset epoch
+/** FABLE_SPENT is DERIVED: a profile whose ratelimit.json reports the fable
+ *  meter (7d_oi) spent belongs to the set. The predicate is pick-cli's for an 'oi' launch — a window whose reset epoch
  *  has passed is stale and says nothing; a live one is spent on a server
  *  refusal (allowed_warning is a warning, not a refusal) or utilization above
  *  0.9. Returns the reason, or null. A missing or malformed file is silent:
@@ -727,9 +691,8 @@ export function render(ctx = {}, world = {}) {
     warnings.push(`role '${ctx.role}' is not one of ${ROLES.join(", ")} — launching with the roleless page`);
   }
 
-  const pools = world.pools ?? readLocalPools(join(dir, "pools.local.json"), warnings);
-  const sets = setsFor(ctx.profile, pools);
-  if (ctx.profile && !sets.includes("FABLE_SPENT")) {
+  const sets = [];
+  if (ctx.profile) {
     const home = env.UCC_HOME ?? `${env.HOME}/.local/share/ucc`;
     const why = fableSpentReason(join(home, "profiles", ctx.profile, "ratelimit.json"));
     if (why) {

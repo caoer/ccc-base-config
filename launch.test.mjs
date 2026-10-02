@@ -24,8 +24,6 @@ import {
   Refusal,
   candidateNames,
   choosePage,
-  readLocalPools,
-  setsFor,
   probe,
   expand,
   expandDeep,
@@ -277,7 +275,7 @@ describe("unit 2: candidate construction", () => {
       want: ["k3.md", "@kimi-k3-moonshot.md", "default.md"],
     },
     {
-      why: "sets come after the profile, in pools.local.json key order",
+      why: "sets come after the profile, in the order given",
       ctx: { profile: "p", sets: ["FABLE_SPENT", "SLOW"], role: "advisor" },
       want: [
         "@p.advisor.md",
@@ -440,41 +438,6 @@ describe("unit 2: the pick", () => {
     cleanup(t, dir);
     const got = choosePage(join(dir, "launch"), { kind: "heartbeat", role: "worker" }, [], []);
     assert.equal(got.pick.stem, "heartbeat");
-  });
-});
-
-describe("unit 2: pools.local.json", () => {
-  test("membership yields sets in the file's key order", (t) => {
-    const dir = fixture({
-      "pools.local.json": JSON.stringify({ SLOW: ["zt"], FABLE_SPENT: ["zt", "other"] }),
-    });
-    cleanup(t, dir);
-    const pools = readLocalPools(join(dir, "pools.local.json"), []);
-    assert.deepEqual(setsFor("zt", pools), ["SLOW", "FABLE_SPENT"]);
-    assert.deepEqual(setsFor("other", pools), ["FABLE_SPENT"]);
-    assert.deepEqual(setsFor(undefined, pools), []);
-  });
-
-  test("absent is empty and silent; malformed is empty and warns once", (t) => {
-    const dir = fixture({ "pools.local.json": "{not json" });
-    cleanup(t, dir);
-    const quiet = [];
-    assert.deepEqual(readLocalPools(join(dir, "gone.json"), quiet), {});
-    assert.deepEqual(quiet, []);
-
-    const warnings = [];
-    assert.deepEqual(readLocalPools(join(dir, "pools.local.json"), warnings), {});
-    assert.equal(warnings.length, 1);
-    assert.match(warnings[0], /pools\.local\.json/);
-  });
-
-  test("a pool whose members are not strings is skipped, the rest survive", (t) => {
-    const dir = fixture({ "pools.local.json": JSON.stringify({ BAD: "zt", FABLE_SPENT: ["zt"] }) });
-    cleanup(t, dir);
-    const warnings = [];
-    const pools = readLocalPools(join(dir, "pools.local.json"), warnings);
-    assert.deepEqual(setsFor("zt", pools), ["FABLE_SPENT"]);
-    assert.equal(warnings.length, 1);
   });
 });
 
@@ -901,29 +864,12 @@ describe("unit 4: the definition and the wire", () => {
     assert.match(out.warnings.join("\n"), /role 'reviewer'/);
   });
 
-  test("sets come from pools.local.json next to the launcher", (t) => {
-    const dir = configFixture(
-      {
-        "pools.local.json": JSON.stringify({ FABLE_SPENT: ["does_bannock_6u"] }),
-        "launch/claude-opus-5-5.advisor.md": page("model: claude-opus-5-5[1m]\neffort: xhigh"),
-        "launch/default.advisor.md": page("model: claude-fable-5-1[1m]\neffort: xhigh"),
-      },
-      { "launch/FABLE_SPENT.advisor.md": "claude-opus-5-5.advisor.md" },
-    );
-    cleanup(t, dir);
-    const out = render({ role: "advisor", profile: "does_bannock_6u" }, { dir, env: {} });
-    assert.equal(flag(out.argv, "--agent"), "claude-opus-5-5.advisor");
-    const other = render({ role: "advisor", profile: "someone_else" }, { dir, env: {} });
-    assert.equal(flag(other.argv, "--agent"), "default.advisor");
-  });
-
-  test("FABLE_SPENT is also derived from the profile's ratelimit.json", (t) => {
+  test("FABLE_SPENT is derived from the profile's ratelimit.json", (t) => {
     const future = String(Math.floor(Date.now() / 1000) + 3600);
     const past = String(Math.floor(Date.now() / 1000) - 3600);
     const rl = (extra) => JSON.stringify({ "7d_oi-reset": future, "7d_oi-status": "allowed", ...extra });
     const dir = configFixture(
       {
-        "pools.local.json": JSON.stringify({ FABLE_SPENT: ["listed"] }),
         "launch/claude-opus-5-5.worker.md": page("model: claude-opus-5-5[1m]\neffort: xhigh"),
         "launch/default.worker.md": page("model: claude-fable-5-1[1m]\neffort: medium"),
         "profiles/rejected/ratelimit.json": rl({ "7d_oi-status": "rejected" }),
@@ -931,7 +877,6 @@ describe("unit 4: the definition and the wire", () => {
         "profiles/warned/ratelimit.json": rl({ "7d_oi-status": "allowed_warning", "7d_oi-utilization": "0.5" }),
         "profiles/stale/ratelimit.json": JSON.stringify({ "7d_oi-reset": past, "7d_oi-status": "rejected" }),
         "profiles/broken/ratelimit.json": "{not json",
-        "profiles/listed/ratelimit.json": rl({}),
       },
       { "launch/FABLE_SPENT.worker.md": "claude-opus-5-5.worker.md" },
     );
@@ -943,7 +888,6 @@ describe("unit 4: the definition and the wire", () => {
     assert.equal(flag(out.argv, "--agent"), "claude-opus-5-5.worker");
     assert.match(out.trace.join("\n"), /set FABLE_SPENT: ratelimit\.json 7d_oi-status=rejected/);
     assert.equal(agent("spent"), "claude-opus-5-5.worker");
-    assert.equal(agent("listed"), "claude-opus-5-5.worker"); // the static file still counts
     for (const quiet of ["warned", "stale", "broken", "absent"]) {
       const o = render({ role: "worker", profile: quiet }, { dir, env });
       assert.equal(flag(o.argv, "--agent"), "default.worker", quiet);

@@ -16,7 +16,7 @@ die() { echo "sync-launch-config: $*" >&2; exit 1; }
 src="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 
 # The bundle, exactly — `git ls-files worker/launch-config` on the other side.
-# Everything else here (this script, ci-watch, pools.local.json) stays out of
+# Everything else here (this script, ci-watch) stays out of
 # the package: a shipped file may hold nothing user- or machine-specific.
 #
 # The lists name every entry the bundle may carry; the source decides which of
@@ -26,7 +26,7 @@ src="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 # still holding launch.ts, rules.ts or prompts/ would copy them back over the
 # repo and undo their deletion, silently and in the direction nobody watches.
 # MERIDIAN.md is absent on purpose: it declares this root to the local engine
-# and is machine-local, exactly like pools.local.json.
+# and is machine-local.
 FILES=(launch.mjs GUIDE.md fleet.md launch.test.mjs .gitignore)
 DIRS=(launch mcp)
 
