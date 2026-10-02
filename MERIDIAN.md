@@ -22,7 +22,6 @@ launcher reads it, and removing it only returns this root to
 
 **Machine-local, not shipped.** The launch-config bundle carries the launcher,
 the pages, the MCP files, `fleet.md` and `GUIDE.md` — nothing else. This file
-and `pools.local.json` are the two things that live only in an installed
-`$UCC_HOME/config`. Giving another machine the same root takes both halves
-there too: this file, and a `ucc-config` mount block in that machine's
-`~/MERIDIAN.md`.
+is the one thing that lives only in an installed `$UCC_HOME/config`. Giving
+another machine the same root takes both halves there: this file, and a
+`ucc-config` mount block in that machine's `~/MERIDIAN.md`.
