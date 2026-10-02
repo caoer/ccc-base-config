@@ -34,6 +34,11 @@ The exit code IS the verdict:
   3  still running at the timeout (states printed, nothing killed) — NOT green
   4  KILLED — cancelled or superseded by a newer commit. NOT a test failure and
      NOT green; the cancelled steps' logs are not evidence.
+  129|130|143  ci-watch itself was stopped by SIGHUP|SIGINT|SIGTERM before a
+     verdict — NOT green; the pipeline was not judged.
+
+Keep --timeout under the background limit of whatever runs ci-watch: a harness
+that stops it first gets 143, never the pipeline's verdict.
 
 The verdict is ALSO the last line of stdout: `ci-watch: VERDICT=<n> <words>`.
 A pipe replaces the exit code with the pipe's own — `... | tail` reports tail's
@@ -81,6 +86,7 @@ verdict_words() {
     2) echo "NO VERDICT — could not resolve or observe a pipeline" ;;
     3) echo "STILL RUNNING at the timeout — NOT green" ;;
     4) echo "KILLED — cancelled or superseded by a newer commit, NOT a test failure" ;;
+    129|130|143) echo "ci-watch was STOPPED by a signal before a verdict — NOT green" ;;
     *) echo "ci-watch itself failed before reaching a verdict" ;;
   esac
 }
@@ -95,6 +101,17 @@ on_exit() {
   fi
 }
 trap on_exit EXIT
+# A signal must reach on_exit as its own exit code. Untrapped, bash dies on it
+# and on_exit reads the $? of the last command that completed — 0 while the
+# loop below waits on pending workflows — so a harness stopping ci-watch at its
+# background limit printed `VERDICT=0 green` for a pipeline whose workflows had
+# not started (ccc-statusd pipeline 2177).
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+# Sleep in the background and wait on it: bash runs a trap only after a
+# foreground child returns, and `wait` is interrupted by the signal at once.
+nap() { sleep "$1" & wait $!; }
 
 export WOODPECKER_SERVER=${WOODPECKER_SERVER:-https://ci.0xdao.app}
 export WOODPECKER_DISABLE_UPDATE_CHECK=1
@@ -238,14 +255,14 @@ while :; do
       echo "  Refusing to report a verdict for a pipeline nobody could observe." >&2
       exit 2
     fi
-    sleep "$INTERVAL"
+    nap "$INTERVAL"
     continue
   fi
   empty_polls=0
   # `pending`/`running` anywhere means the pipeline is not done yet.
   printf '%s\n' "$states" | grep -qE '\|(pending|running)$' || break
   if [ "$(date +%s)" -ge "$deadline" ]; then timed_out=1; break; fi
-  sleep "$INTERVAL"
+  nap "$INTERVAL"
 done
 
 rc=0
