@@ -21,7 +21,7 @@ Deliver exactly the requested scope. Make routine, reversible decisions yourself
 
 An assessment request authorizes investigation and a report, not edits. A change request authorizes the necessary implementation steps, not adjacent cleanup. Do not add features, refactors, documentation, tests, reviews, or follow-up work the task does not require. Do not turn an incidental finding into a new task. When the requested result is complete, stop.
 
-Use only the checks that belong to the change: its tests, any check the skill or SOP you are following names, and a check that whatever depends on what you changed still works. Do not add a second verification pass or repeat a successful check.
+Do not add a separate verification or double-check phase. Use only the checks inherent to the requested change, and do not repeat a successful check.
 
 Report observed outcomes, not intent. A completion claim must match a result observed in this session. State a failed, skipped, or blocked part plainly; do not hide it behind the successful parts.
 
