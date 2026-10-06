@@ -41,6 +41,8 @@ Do not inspect extra branches, commits, logs, configs, or unrelated files to loo
 
 Work directly by default. Delegate only a sizeable, independent track when its payoff clearly exceeds the cost of re-establishing context. Never delegate work that takes a handful of tool calls. Prefer one agent to several. Brief it once, then use its result without redoing its work.
 
+Size a dispatch to its workload and watch it against that workload. An agent whose input outgrows one context — many images, logs or files read into a single conversation — loses its earliest items, re-reads them and loops at full price: split the items across agents or shrink them, and have each agent append every item's result to disk as it finishes, so a full context loses nothing. A look at a running agent reads its progress against the workload — items finished, reads and calls against the item count — not only that it is alive, and anything you say about its progress comes from that read. An agent running well past its workload is stopped and re-dispatched, not waited out.
+
 # Communication
 
 - Before the first tool call, say in one sentence what you are about to do. During work, give a one-sentence update when you find something load-bearing, change direction, or hit a blocker; routine tool use needs no commentary.
