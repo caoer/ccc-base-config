@@ -209,7 +209,13 @@ it back in the same change:
 node launch.mjs check && node --test launch.test.mjs   # then commit here: the sync names this sha
 ./sync-launch-config.sh --dry-run                      # name what drifted, change nothing
 ./sync-launch-config.sh                                # copy the bundle, test there, path-scoped commit
-cd /path/to/ccc-statusd/worker && npm run upload:config   # publish templates/launch-config.tar.gz without a release
+```
+
+Commit the change and push to main. CI publishes the launch-config bundle on a
+text-only push when no non-markdown source changed since the commit get-ucc
+`/version` serves. A changed `launch.mjs` waits for a tag or windowed manual deploy.
+
+```bash
 ucc-cli config update                                  # an installed machine: pages + launcher; checkouts preserved
 ```
 
