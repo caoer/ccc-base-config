@@ -7,7 +7,7 @@ task.poll: "[[#^poll]]"
 
 The endpoint pages this host ticks, and the definition every run of them receives — one file, so what an agent is told and what the daemon enforces cannot drift apart.
 
-- **Who reads it.** `ccc-statusd` reads § Endpoints when it starts and on every `ccc-statusd pages tick <slug>`; a change to an endpoint takes `ccc-statusd restart`. Each run's launcher appends this whole page to the agent's system prompt, followed by the page's own `agent/SYSTEM-PROMPT-APPEND.md` when its site has one; the composed file is `$UCC_HOME/data/ccc-pages/prompts/<slug>.md`, the one place to read what a run was told.
+- **Who reads it.** `ccc-statusd` re-reads § Endpoints every few seconds and on every `ccc-statusd pages tick <slug>`; a change to an endpoint takes effect without a daemon restart. Each run's launcher appends this whole page to the agent's system prompt, followed by the page's own `agent/SYSTEM-PROMPT-APPEND.md` when its site has one; the composed file is `$UCC_HOME/data/ccc-pages/prompts/<slug>.md`, the one place to read what a run was told.
 - **Check it.** `ccc-statusd pages tick <slug> --json` — a branch means the page parsed; `refused` with `registry_invalid` means it did not, and the daemon log names the line. `mrd run ucc-config:page-endpoints.md --list` shows the declared task.
 - **Rules.** Exactly one host lists a slug. An unknown key, a duplicate slug, a section without a ```toml block, or a placement naming no pane refuses the whole page, and the daemon ticks nothing until it parses: a page that silently dropped an endpoint would be a page that silently stopped being served.
 
