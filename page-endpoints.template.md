@@ -10,6 +10,7 @@ The endpoint pages this host ticks, and the definition every run of them receive
 - **Who reads it.** `ccc-statusd` re-reads § Endpoints every few seconds and on every `ccc-statusd pages tick <slug>`; a change to an endpoint takes effect without a daemon restart. Each run's launcher appends this whole page to the agent's system prompt, followed by the page's own `agent/SYSTEM-PROMPT-APPEND.md` when its site has one; the composed file is `$UCC_HOME/data/ccc-pages/prompts/<slug>.md`, the one place to read what a run was told.
 - **Check it.** `ccc-statusd pages tick <slug> --json` — a branch means the page parsed; `refused` with `registry_invalid` means it did not, and the daemon log names the line. `mrd run ucc-config:page-endpoints.md --list` shows the declared task.
 - **Rules.** Exactly one host lists a slug. An unknown key, a duplicate slug, a section without a ```toml block, or a placement naming no pane refuses the whole page, and the daemon ticks nothing until it parses: a page that silently dropped an endpoint would be a page that silently stopped being served.
+- **Where it lives.** `$UCC_HOME/config/page-endpoints.md` is host-local and untracked (`.gitignore`), so a pull, clone or reset of this repo never brings a host a list to tick. This file, `page-endpoints.template.md`, is the tracked Router and rules: a new host copies it to `page-endpoints.md` and adds the `### <slug>` sections it ticks; a Router edit lands here and in each ticking host's copy.
 
 ## Router
 
@@ -36,69 +37,4 @@ The task below is step 3's command, declared so `mrd run ucc-config:page-endpoin
 
 ## Endpoints
 
-One `### <slug>` section per page. The section's ```toml block states `tick_s` (20), `[placement]` — the pane a run spawns into: `substrate = "herdr"` with `herdr_socket` and `herdr_workspace`, or `substrate = "tmux"` with `tmux_session` — and `[ceiling]`, what the page's own `agent/policy.json` is clamped against: `lease_max_min` (30), `max_budget_usd` (5), `launchers` (`["ucc-auto"]`), `models` (any), `floor_rate_usd_per_min` (0.08), `alert_usd_per_day` (20), `alert_runs_per_hour` (6), `hook_timeout_max_s` (120, at most 240). Prose around the block is for people.
-
-### endpoint-zmax-a404f3d2bb5efe6e
-
-```toml
-tick_s = 20
-
-[placement]
-substrate = "herdr"
-herdr_socket = "/Users/caoer115/.config/herdr/herdr.sock"
-herdr_workspace = "w2Y"
-
-[ceiling]
-launchers = ["ucc-auto", "ucc-minimax-us"]
-```
-
-### chain-lane-0ffae8960ca8af00
-
-The chain lane: the one standing feedback endpoint for chain sessions. No chain session ever gets an entry of its own.
-
-```toml
-tick_s = 20
-
-[placement]
-substrate = "herdr"
-herdr_socket = "/Users/caoer115/.config/herdr/herdr.sock"
-herdr_workspace = "w2Y"
-
-[ceiling]
-lease_max_min = 35
-launchers = ["ucc-minimax-us"]
-```
-
-### andrew-38c2d2d6cbf9670e
-
-Teammate onboarding — Andrew's personal page (session 15-06-teammate-onboarding, U3).
-
-```toml
-tick_s = 20
-
-[placement]
-substrate = "herdr"
-herdr_socket = "/Users/caoer115/.config/herdr/herdr.sock"
-herdr_workspace = "w2Y"
-
-[ceiling]
-lease_max_min = 35
-launchers = ["ucc-minimax-us"]
-```
-
-### jesse-bb88e0809b9462ce
-
-Teammate onboarding — Jesse's personal page (session 15-06-teammate-onboarding, U3).
-
-```toml
-tick_s = 20
-
-[placement]
-substrate = "herdr"
-herdr_socket = "/Users/caoer115/.config/herdr/herdr.sock"
-herdr_workspace = "w2Y"
-
-[ceiling]
-lease_max_min = 35
-launchers = ["ucc-minimax-us"]
-```
+One `### <slug>` section per page. The section's ```toml block states `tick_s` (20), `[placement]` — optional: absent is herdr's default session, workspace `agents` (tmux session `agents` on a host where herdr does not answer); a stated one names `substrate = "herdr"` with an optional `herdr_socket` and `herdr_workspace` (an id or a label), or `substrate = "tmux"` with `tmux_session`, and never falls back — and `[ceiling]`, what the page's own `agent/policy.json` is clamped against: `lease_max_min` (30), `max_budget_usd` (5), `launchers` (`["ucc-auto"]`), `models` (any), `floor_rate_usd_per_min` (0.08), `alert_usd_per_day` (20), `alert_runs_per_hour` (6), `hook_timeout_max_s` (120, at most 240). Prose around the block is for people.
