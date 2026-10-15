@@ -840,22 +840,22 @@ describe("unit 4: the definition and the wire", () => {
 
   test("mcpServers names resolve through mcp/, gate by gate", (t) => {
     const dir = configFixture({
-      "launch/default.worker.md": page("model: claude-opus-5-5[1m]\nmcpServers: [ccc-statusd, shellkit]"),
-      "mcp/ccc-statusd.md": server('["env:CCC_STATUSD_MCP_TOKEN"]', '{"type": "http", "url": "http://localhost:${CCC_STATUSD_MCP_PORT:-19223}/mcp", "headers": {"Authorization": "Bearer ${CCC_STATUSD_MCP_TOKEN}"}}'),
+      "launch/default.worker.md": page("model: claude-opus-5-5[1m]\nmcpServers: [ccc, shellkit]"),
+      "mcp/ccc.md": server('["env:CCC_STATUSD_MCP_TOKEN"]', '{"type": "http", "url": "http://localhost:${CCC_STATUSD_MCP_PORT:-19223}/mcp", "headers": {"Authorization": "Bearer ${CCC_STATUSD_MCP_TOKEN}"}}'),
       "mcp/shellkit.md": server('["env:SHELLKIT_MCP_TOKEN"]', '{"type": "http", "url": "http://localhost:19222/mcp"}'),
     });
     cleanup(t, dir);
     const out = render({ role: "worker" }, { dir, env: { CCC_STATUSD_MCP_TOKEN: "tok" } });
     assert.deepEqual(definitionOf(out)["default.worker"].mcpServers, [
-      { "ccc-statusd": { type: "http", url: "http://localhost:19223/mcp", headers: { Authorization: "Bearer tok" } } },
+      { ccc: { type: "http", url: "http://localhost:19223/mcp", headers: { Authorization: "Bearer tok" } } },
     ]);
     assert.match(out.trace.join("\n"), /mcp shellkit: skipped — needs env:SHELLKIT_MCP_TOKEN/);
   });
 
   test("a cccd on PATH mints the seat: its config rides its own --mcp-config and replaces the face entry", (t) => {
     const dir = configFixture({
-      "launch/default.worker.md": page("model: claude-opus-5-5[1m]\nmcpServers: [ccc-statusd, shellkit]"),
-      "mcp/ccc-statusd.md": server('["env:CCC_STATUSD_MCP_TOKEN"]', '{"type": "http", "url": "http://localhost:19223/mcp", "headers": {"Authorization": "Bearer ${CCC_STATUSD_MCP_TOKEN}"}}'),
+      "launch/default.worker.md": page("model: claude-opus-5-5[1m]\nmcpServers: [ccc, shellkit]"),
+      "mcp/ccc.md": server('["env:CCC_STATUSD_MCP_TOKEN"]', '{"type": "http", "url": "http://localhost:19223/mcp", "headers": {"Authorization": "Bearer ${CCC_STATUSD_MCP_TOKEN}"}}'),
       "mcp/shellkit.md": server('["env:SHELLKIT_MCP_TOKEN"]', '{"type": "http", "url": "http://localhost:19222/mcp"}'),
     });
     cleanup(t, dir);
@@ -881,7 +881,7 @@ describe("unit 4: the definition and the wire", () => {
     writeFileSync(join(bin, "cccd"), "#!/bin/sh\necho 'cccd mint: --principal is required' >&2\nexit 2\n", { mode: 0o755 });
     const kept = render({ role: "worker" }, { dir, env });
     assert.ok(!kept.argv.some((a) => a.includes("abcd1234")), kept.argv.join(" "));
-    assert.ok(definitionOf(kept)["default.worker"].mcpServers.some((s) => "ccc-statusd" in s));
+    assert.ok(definitionOf(kept)["default.worker"].mcpServers.some((s) => "ccc" in s));
     assert.match(kept.warnings.join("\n"), /seat: cccd mint failed/);
   });
 
@@ -1169,9 +1169,9 @@ function goodTree() {
   return fixture(
     {
       "fleet.md": FLEET,
-      "launch/claude-opus-5-5.worker.md": page("model: claude-opus-5-5[1m]\neffort: xhigh\nmcpServers: [ccc-statusd]"),
+      "launch/claude-opus-5-5.worker.md": page("model: claude-opus-5-5[1m]\neffort: xhigh\nmcpServers: [ccc]"),
       "launch/heartbeat.md": page("model: claude-sonnet-5[1m]\neffort: medium\ntools: [Bash, Read]"),
-      "mcp/ccc-statusd.md": server('["env:CCC_STATUSD_MCP_TOKEN"]', '{"type": "http", "url": "http://localhost:1/mcp"}'),
+      "mcp/ccc.md": server('["env:CCC_STATUSD_MCP_TOKEN"]', '{"type": "http", "url": "http://localhost:1/mcp"}'),
     },
     { "launch/default.worker.md": "claude-opus-5-5.worker.md" },
   );
@@ -1303,6 +1303,21 @@ describe("unit 5: check", () => {
   test("check is green on the shipped tree", () => {
     const got = checkTree(fileURLToPath(new URL(".", import.meta.url)), {});
     assert.deepEqual(got.errors, [], got.errors.join("\n"));
+  });
+
+  // The face's gate is either binary: cccd, or the ccc-statusd an installer
+  // predating cccd wrote alone.
+  test("the shipped mcp/ccc.md gate: cccd or ccc-statusd, and the token", (t) => {
+    const { requires } = readServerFile(fileURLToPath(new URL("./mcp", import.meta.url)), "ccc");
+    const met = (env) => requires.every((expr) => probe(expr, env));
+    for (const name of ["cccd", "ccc-statusd", null]) {
+      const home = mkdtempSync(join(tmpdir(), "ccc-gate-"));
+      cleanup(t, home);
+      mkdirSync(join(home, ".local/bin"), { recursive: true });
+      if (name !== null) writeFileSync(join(home, ".local/bin", name), "#!/bin/sh\n", { mode: 0o755 });
+      assert.equal(met({ HOME: home, CCC_STATUSD_MCP_TOKEN: "tok" }), name !== null, `binary ${name}`);
+      assert.equal(met({ HOME: home }), false, `binary ${name}, no token`);
+    }
   });
 });
 

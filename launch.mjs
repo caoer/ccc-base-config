@@ -472,8 +472,9 @@ export function resolveServers(mcpDir, names, env = {}, trace = [], warnings = [
 // process a later mint can see is gone.
 // ═══════════════════════════════════════════════════════════════════════════
 
-/** The MCP server name the seat config carries — the daemon's face. */
-export const SEAT_SERVER = "ccc-statusd";
+/** The MCP server name the seat config carries — the daemon's face,
+ *  mcp/ccc.md (internal/conv MCPServerName). */
+export const SEAT_SERVER = "ccc";
 
 /** The session id the caller's argv names, if any — the seat's actor at mint:
  *  --session-id <id> fixes it, --resume <id> / -r <id> continues it. A bare
@@ -1097,11 +1098,13 @@ function checkServer(mcpDir, name, errors, prefix = "") {
 }
 
 /** Bytes are the gate; a token count is a note, and only when the daemon that
- *  can measure one is on PATH (D9 — `check` must run in CI with no daemon). */
+ *  can measure one is on PATH (D9 — `check` must run in CI with no daemon):
+ *  cccd, or ccc-statusd on a host whose installer wrote only that name. */
 function tokenCount(path, env) {
-  if (!probe("bin:ccc-statusd", env)) return null;
+  const bin = ["cccd", "ccc-statusd"].find((name) => probe(`bin:${name}`, env));
+  if (bin === undefined) return null;
   try {
-    const out = execFileSync("ccc-statusd", ["session", "token-count", path], {
+    const out = execFileSync(bin, ["session", "token-count", path], {
       encoding: "utf8",
       timeout: 10000,
       stdio: ["ignore", "pipe", "ignore"],
