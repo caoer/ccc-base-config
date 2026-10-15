@@ -852,6 +852,39 @@ describe("unit 4: the definition and the wire", () => {
     assert.match(out.trace.join("\n"), /mcp shellkit: skipped — needs env:SHELLKIT_MCP_TOKEN/);
   });
 
+  test("a cccd on PATH mints the seat: its config rides its own --mcp-config and replaces the face entry", (t) => {
+    const dir = configFixture({
+      "launch/default.worker.md": page("model: claude-opus-5-5[1m]\nmcpServers: [ccc-statusd, shellkit]"),
+      "mcp/ccc-statusd.md": server('["env:CCC_STATUSD_MCP_TOKEN"]', '{"type": "http", "url": "http://localhost:19223/mcp", "headers": {"Authorization": "Bearer ${CCC_STATUSD_MCP_TOKEN}"}}'),
+      "mcp/shellkit.md": server('["env:SHELLKIT_MCP_TOKEN"]', '{"type": "http", "url": "http://localhost:19222/mcp"}'),
+    });
+    cleanup(t, dir);
+    const bin = mkdtempSync(join(tmpdir(), "cccd-"));
+    cleanup(t, bin);
+    writeFileSync(
+      join(bin, "cccd"),
+      `#!/bin/sh\nprintf '%s\\n' "$@" > "${bin}/args"\necho '{"actor":"abcd1234","seat":"${bin}/abcd1234","config":"${bin}/abcd1234.mcp.json","principal":"zt"}'\n`,
+      { mode: 0o755 },
+    );
+    const env = { CCC_STATUSD_MCP_TOKEN: "tok", SHELLKIT_MCP_TOKEN: "sk", PATH: bin, USER: "zt", UCC_LAUNCH_PID: "4242" };
+    const out = render({ role: "worker", argv: ["--session-id", "abcd1234-0000-4000-8000-000000000001", "-p", "hi"] }, { dir, env });
+    assert.ok(out.argv.includes(`--mcp-config=${join(bin, "abcd1234.mcp.json")}`), out.argv.join(" "));
+    assert.deepEqual(definitionOf(out)["default.worker"].mcpServers, [{ shellkit: { type: "http", url: "http://localhost:19222/mcp" } }]);
+    assert.match(out.trace.join("\n"), /seat: minted abcd1234 for zt/);
+    assert.deepEqual(readFileSync(join(bin, "args"), "utf8").trim().split("\n"), [
+      "mint", "--principal", "zt", "--json", "--pid", "4242", "--actor", "abcd1234-0000-4000-8000-000000000001",
+    ]);
+    // explain renders without minting; a failing mint keeps the host entry.
+    rmSync(join(bin, "args"));
+    explain({ role: "worker" }, { dir, env });
+    assert.equal(existsSync(join(bin, "args")), false, "explain must not mint");
+    writeFileSync(join(bin, "cccd"), "#!/bin/sh\necho 'cccd mint: --principal is required' >&2\nexit 2\n", { mode: 0o755 });
+    const kept = render({ role: "worker" }, { dir, env });
+    assert.ok(!kept.argv.some((a) => a.includes("abcd1234")), kept.argv.join(" "));
+    assert.ok(definitionOf(kept)["default.worker"].mcpServers.some((s) => "ccc-statusd" in s));
+    assert.match(kept.warnings.join("\n"), /seat: cccd mint failed/);
+  });
+
   test("no page at all: nothing is emitted and the launch is plain", (t) => {
     const dir = fixture({ "fleet.md": FLEET, "launch/.keep": "" });
     cleanup(t, dir);

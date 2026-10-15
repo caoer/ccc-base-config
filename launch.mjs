@@ -26,6 +26,7 @@ import { basename, isAbsolute, join, relative, resolve as resolvePath } from "no
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
+import { userInfo } from "node:os";
 
 /** this file's own directory — the config dir: launch/, mcp/, fleet.md */
 export const HERE = fileURLToPath(new URL(".", import.meta.url)).replace(/\/$/, "");
@@ -458,6 +459,69 @@ export function resolveServers(mcpDir, names, env = {}, trace = [], warnings = [
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// THE SEAT — the launch's own identity (contracts:identity/v1 § mint).
+//
+// A launcher is the identity provider from floor 2 up: before the harness
+// starts it calls `cccd mint`, which binds the principal (the OS user) and
+// writes the seat file and a 0600 MCP config carrying the seat's own bearer
+// literally (plan decision 23 — never through a ${VAR}). The record face
+// grades that seat's writes `seat-token`; the host token's entry, which every
+// launch carried before cccd existed, stays for a host without cccd and is
+// graded `asserted` there. The wrapper exports UCC_LAUNCH_PID=$$ before the
+// render and execs the harness on that pid, so the seat file names the
+// process a later mint can see is gone.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** The MCP server name the seat config carries — the daemon's face. */
+export const SEAT_SERVER = "ccc-statusd";
+
+/** The session id the caller's argv names, if any — the seat's actor at mint:
+ *  --session-id <id> fixes it, --resume <id> / -r <id> continues it. A bare
+ *  --resume (the picker) names none; the face rebinds on the first write. */
+export function seatActorHint(raw = []) {
+  for (let i = 0; i < raw.length; i++) {
+    const a = raw[i];
+    if (a === "--") break;
+    for (const flag of ["--session-id", "--resume", "-r"]) {
+      if (a === flag && i + 1 < raw.length && !raw[i + 1].startsWith("-")) return raw[i + 1];
+      if (a.startsWith(`${flag}=`)) return a.slice(flag.length + 1);
+    }
+  }
+  return undefined;
+}
+
+/** `cccd mint` for this launch → the seat's config path, or undefined with the
+ *  reason traced or warned — the launch then keeps the host token's entry. */
+export function mintSeat(argv, env, trace, warnings) {
+  if (!probe("bin:cccd", env)) {
+    trace.push("seat: no cccd on PATH — the host token's entry stays");
+    return undefined;
+  }
+  let principal = String(env.USER ?? "").trim();
+  if (principal === "") {
+    try {
+      principal = userInfo().username;
+    } catch {
+      principal = "";
+    }
+  }
+  const args = ["mint", "--principal", principal, "--json"];
+  if (env.UCC_LAUNCH_PID) args.push("--pid", String(env.UCC_LAUNCH_PID));
+  const actor = seatActorHint(argv);
+  if (actor !== undefined) args.push("--actor", actor);
+  try {
+    const out = execFileSync("cccd", args, { encoding: "utf8", env, stdio: ["ignore", "pipe", "pipe"], timeout: 5000 });
+    const got = JSON.parse(out);
+    if (typeof got.config !== "string" || got.config === "") throw new Error("no config path in the answer");
+    trace.push(`seat: minted ${got.actor} for ${got.principal} — ${got.config}`);
+    return got.config;
+  } catch (e) {
+    warnings.push(`seat: cccd mint failed (${String(e.stderr || e.message).trim().slice(-200)}) — the host token's entry stays`);
+    return undefined;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // THE WIRE — page + machine → an agent definition and the argv that carries it.
 //
 // The definition is BUILT, never printed: JSON.stringify is the only writer, so
@@ -806,9 +870,20 @@ export function render(ctx = {}, world = {}) {
     const servers = resolveServers(join(dir, "mcp"), [].concat(front.mcpServers).map(String), env, trace, warnings);
     if (servers.length > 0) agent.mcpServers = servers;
   }
+  // ── the seat: an included face entry is replaced by the seat's own minted
+  // config, passed as its own --mcp-config. `explain` renders without minting. ──
+  let seatConfig;
+  if (world.mint !== false && agent.mcpServers?.some((s) => SEAT_SERVER in s)) {
+    seatConfig = mintSeat(ctx.argv ?? [], env, trace, warnings);
+    if (seatConfig !== undefined) {
+      agent.mcpServers = agent.mcpServers.filter((s) => !(SEAT_SERVER in s));
+      if (agent.mcpServers.length === 0) delete agent.mcpServers;
+    }
+  }
 
   // ── the argv ──────────────────────────────────────────────────────────────
   const argv = definitionArgv(name, agent, world.pluginRoot, trace);
+  if (seatConfig !== undefined) argv.push(`--mcp-config=${seatConfig}`);
   if (modelIsExplicit && model !== undefined) argv.push("--model", model); // siftArgv removed the caller's own
   if (effort !== undefined && mine("effort")) argv.push("--effort", effort);
 
@@ -1041,7 +1116,7 @@ function tokenCount(path, env) {
 /** The ladder, the rules and the render, for a human. Deterministic on both
  *  runtimes — the parity gate compares this byte for byte. */
 export function explain(ctx = {}, world = {}) {
-  const out = render(ctx, world);
+  const out = render(ctx, { ...world, mint: false });
   const lines = [
     `launch  profile=${ctx.profile ?? "—"} role=${ctx.role ?? "—"} model=${ctx.model ?? "—"} ` +
       `kind=${ctx.kind ?? "—"} cwd=${ctx.cwd ?? "—"}`,
