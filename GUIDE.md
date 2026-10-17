@@ -18,8 +18,8 @@ launch/` is the whole vocabulary and `explain` prints the list it walked.
 ```bash
 node launch.mjs check                                    # the whole tree; exit 1 on any error
 node launch.mjs explain --role worker --profile <p>      # what one launch gets, and why
-node launch.mjs explain --launch heartbeat
-ucc-<p> --role leader --launch heartbeat --effort high   # the wrapper reads these
+node launch.mjs explain --launch claude-opus-5-5 --role worker
+ucc-<p> --role worker --launch claude-opus-5-5 --effort high   # the wrapper reads these
 ```
 
 ## The ladder
@@ -59,7 +59,7 @@ effort: medium
 tools: [Bash, Read, AskUserQuestion]
 mcpServers: [ccc-statusd]
 ---
-You are the fleet heartbeat agent: woken, act once, end the turn.
+You are a watcher agent: woken, act once, end the turn.
 ```
 
 Frontmatter is flat — `key: scalar` or `key: [a, b, "c, quoted"]`. Anything

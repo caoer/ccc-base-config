@@ -65,6 +65,21 @@ repo="$(cd "$repo" 2> /dev/null && pwd -P)" || die "no such directory: $repo"
 dst="$repo/worker/launch-config"
 [[ -f "$dst/launch.mjs" ]] || die "$dst is not a launch-config bundle"
 
+# The vendored copy may be AHEAD of this checkout: a section landed in
+# ccc-statusd directly (THE SEAT — the minted seat, the seat-token identity)
+# and was never reconciled here. launch.mjs is organised in sections, each
+# opened by a `// NAME — …` line; a section the vendored copy carries and this
+# checkout lacks would be reverted on every installed host by this sync,
+# silently and in the direction nobody watches. Refused, naming the sections:
+# the reconcile — copying them into this checkout and committing — comes
+# first, then the sync.
+sections() { grep -oE '^// [A-Z][A-Z ]+ —' "$1" | sed 's/ —$//; s|^// ||' | sort -u; }
+if missing=$(comm -13 <(sections "$src/launch.mjs") <(sections "$dst/launch.mjs")) && [[ -n $missing ]]; then
+  printf 'sync-launch-config: launch.mjs here lacks section(s) the vendored copy carries:\n' >&2
+  printf '%s\n' "$missing" | sed 's/^/  /' >&2
+  die "syncing would drop them from worker/launch-config/launch.mjs and from every host that installs it — reconcile this checkout first: bring the section(s) over from $dst/launch.mjs (git -C $repo log -- worker/launch-config/launch.mjs names the commits), run bun test launch.test.mjs here, commit, then sync"
+fi
+
 if ((dry)); then
   changed=0
   for f in "${FILES[@]}"; do
