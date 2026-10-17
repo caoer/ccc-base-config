@@ -12,6 +12,19 @@ mkdir -p "$tmp/bin"
 
 cat >"$tmp/bin/woodpecker-cli" <<'EOF'
 #!/usr/bin/env bash
+if [ "$FAKE_PIPELINE" = killed-red ]; then
+  case "$1 $2" in
+    "pipeline log") echo "fake log of step $6: test result: FAILED. 14 failed"; exit 0 ;;
+    "pipeline ps") cat <<'T'
+3|clone|success
+9|obs silence|killed
+13|aarch64 record|canceled
+19|clone|success
+20|test (cargo test --workspace --locked)|failure
+T
+      exit 0 ;;
+  esac
+fi
 [ "$1 $2" = "pipeline ps" ] || { echo "fake woodpecker-cli: unhandled $*" >&2; exit 9; }
 late=pending; [ "$FAKE_PIPELINE" = done ] && late=success
 cat <<T
@@ -46,6 +59,7 @@ if [ "$FAKE_PIPELINE" = unauthorized ]; then
 fi
 status=running; [ "$FAKE_PIPELINE" = done ] && status=success
 case "$*" in
+  *"/pipelines/2441"*)    echo '{"number":2441,"commit":"97a3686f0000","status":"killed","workflows":[{"name":"build","state":"killed","error":"Canceled"},{"name":"test","state":"failure","error":null}]}' ;;
   *"/pipelines?perPage"*) echo "[{\"number\":2177,\"commit\":\"8c957a7f0000\",\"status\":\"$status\"}]" ;;
   *"/pipelines/2177"*)    echo "{\"number\":2177,\"commit\":\"8c957a7f0000\",\"status\":\"$status\"}" ;;
   *) echo "fake curl: unhandled $*" >&2; exit 22 ;;
@@ -86,6 +100,15 @@ check "terminated while pending is not green" 143 "ci-watch: VERDICT=143 " $? "$
 # 4. Woodpecker rejects the token (401): no verdict, never red.
 FAKE_PIPELINE=unauthorized "$script" --sha 8c957a7f >"$tmp/401.out" 2>&1
 check "rejected token is no verdict" 2 "ci-watch: VERDICT=2 " $? "$tmp/401.out"
+
+# 5. Killed after a workflow already finished red (collector-rs pipeline 2441: `test`
+#    failed, then a newer push killed `build`): RED with the failed step's log, never KILLED.
+FAKE_PIPELINE=killed-red "$script" 2441 >"$tmp/killed-red.out" 2>&1
+rc=$?
+grep -q '^workflow test finished failure before the kill$' "$tmp/killed-red.out" &&
+  grep -q 'fake log of step 20' "$tmp/killed-red.out" &&
+  ! grep -q 'fake log of step 9' "$tmp/killed-red.out" || rc="$rc, workflow verdict or failed-step log missing"
+check "killed after a red workflow is red" 1 "ci-watch: VERDICT=1 " "$rc" "$tmp/killed-red.out"
 
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 exit "$fails"

@@ -34,7 +34,9 @@ The exit code IS the verdict:
      refused the token (401/403)
   3  still running at the timeout (states printed, nothing killed) — NOT green
   4  KILLED — cancelled or superseded by a newer commit. NOT a test failure and
-     NOT green; the cancelled steps' logs are not evidence.
+     NOT green; the cancelled steps' logs are not evidence. Each workflow that
+     finished before the kill prints its verdict, and one that finished red
+     makes the exit 1 RED, not 4.
   129|130|143  ci-watch itself was stopped by SIGHUP|SIGINT|SIGTERM before a
      verdict — NOT green; the pipeline was not judged.
 
@@ -306,15 +308,43 @@ fi
 #
 # FAIL-CLOSED: if that query fails, or says anything other than `killed`, rc stays 1.
 # A broken lookup must never downgrade a real RED.
+#
+# A kill does not erase what already finished. Woodpecker kills the PIPELINE when a
+# newer commit arrives, but a workflow that completed before that keeps its own
+# state: collector-rs pipeline 2441 had its `test` workflow fail (exit 101) seven
+# minutes before the next push killed the still-running `build`, and the whole run
+# read as KILLED — the red went unseen. So a killed pipeline is judged by its
+# finished workflows: any of them red keeps rc=1, all of them green makes it 4.
+killed_red=0
 if [ "$rc" -ne 0 ]; then
-  pstatus=$(curl -fsS -H "Authorization: Bearer $WOODPECKER_TOKEN" \
-    "$WOODPECKER_SERVER/api/repos/$REPO/pipelines/$pipeline" 2>/dev/null |
+  pjson=$(curl -fsS -H "Authorization: Bearer $WOODPECKER_TOKEN" \
+    "$WOODPECKER_SERVER/api/repos/$REPO/pipelines/$pipeline" 2>/dev/null) || pjson=""
+  pstatus=$(printf '%s' "$pjson" |
     python3 -c 'import json,sys; print(json.load(sys.stdin).get("status",""))' 2>/dev/null) || pstatus=""
   if [ "$pstatus" = "killed" ]; then
-    rc=4
-    echo "ci-watch: pipeline $pipeline status is KILLED — cancelled or superseded by a newer commit." >&2
-    echo "  Not a test failure. Steps below were cancelled mid-flight, so their logs are not evidence." >&2
-    echo "  If you superseded this sha yourself, this is an artifact. Otherwise find out who cancelled it." >&2
+    # name|state of every workflow that finished on its own (not cut by the kill).
+    finished=$(printf '%s' "$pjson" | python3 -c '
+import json,sys
+for w in json.load(sys.stdin).get("workflows") or []:
+    if w.get("state") not in ("killed", "canceled", "pending", "running", "blocked"):
+        print("%s|%s" % (w.get("name", "?"), w.get("state", "?")))
+' 2>/dev/null) || finished="?|unreadable"
+    red_wf=""
+    while IFS='|' read -r wname wstate; do
+      [ -n "$wname" ] || continue
+      echo "workflow $wname finished $wstate before the kill"
+      case "$wstate" in success|skipped) ;; *) red_wf="$red_wf $wname" ;; esac
+    done <<<"$finished"
+    if [ -n "$red_wf" ]; then
+      killed_red=1
+      echo "ci-watch: pipeline $pipeline was KILLED, but workflow(s)$red_wf had already finished red — RED." >&2
+      echo "  Logs below are the failed steps only; the steps the kill cancelled are not evidence." >&2
+    else
+      rc=4
+      echo "ci-watch: pipeline $pipeline status is KILLED — cancelled or superseded by a newer commit." >&2
+      echo "  Not a test failure. Steps below were cancelled mid-flight, so their logs are not evidence." >&2
+      echo "  If you superseded this sha yourself, this is an artifact. Otherwise find out who cancelled it." >&2
+    fi
   fi
 fi
 
@@ -322,6 +352,9 @@ fi
 if [ "$rc" -eq 1 ]; then
   while IFS='|' read -r pid name state; do
     case "$state" in success|skipped|"") continue ;; esac
+    if [ "$killed_red" -eq 1 ]; then
+      case "$state" in failure|error) ;; *) continue ;; esac
+    fi
     echo; echo "=== log: $name ($state) ==="
     wp pipeline log show "$REPO" "$pipeline" "$pid" || true
   done <<<"$states"
