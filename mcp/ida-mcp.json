@@ -1,0 +1,6 @@
+{
+  "command": "/Users/caoer115/.local/share/ucc/tools/ida-pro-mcp/.venv/bin/idalib-mcp",
+  "args": ["--stdio", "--max-workers", "1"],
+  "mode": "headless",
+  "timeoutMs": 3600000
+}
