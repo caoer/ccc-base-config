@@ -30,6 +30,10 @@ if [ "$FAKE_PIPELINE" = all-canceled ] && [ "$1 $2" = "pipeline ps" ]; then
     '20|clone|canceled' '21|test (cargo test --workspace --locked)|canceled'
   exit 0
 fi
+if [ "$1 $2" = "pipeline create" ]; then
+  [ "$FAKE_PIPELINE" = create-fails ] && { echo "fake: create refused" >&2; exit 0; }
+  printf '%s\n' 'NUMBER STATUS EVENT BRANCH' '2653 pending manual main'; exit 0
+fi
 [ "$1 $2" = "pipeline ps" ] || { echo "fake woodpecker-cli: unhandled $*" >&2; exit 9; }
 late=pending; [ "$FAKE_PIPELINE" = done ] && late=success
 cat <<T
@@ -67,6 +71,7 @@ case "$*" in
   *"/pipelines/2441"*)    echo '{"number":2441,"commit":"97a3686f0000","status":"killed","workflows":[{"name":"build","state":"killed","error":"Canceled"},{"name":"test","state":"failure","error":null}]}' ;;
   *"/pipelines/2590"*)    echo '{"number":2590,"commit":"feed5f330000","status":"canceled","workflows":[{"name":"build","state":"skipped"},{"name":"test","state":"skipped"}]}' ;;
   *"/pipelines?perPage"*) echo "[{\"number\":2177,\"commit\":\"8c957a7f0000\",\"status\":\"$status\"}]" ;;
+  *"/pipelines/2653"*)    echo '{"number":2653,"commit":"daf58e3f0000","status":"success"}' ;;
   *"/pipelines/2177"*)    echo "{\"number\":2177,\"commit\":\"8c957a7f0000\",\"status\":\"$status\"}" ;;
   *) echo "fake curl: unhandled $*" >&2; exit 22 ;;
 esac
@@ -122,6 +127,19 @@ FAKE_PIPELINE=all-canceled "$script" 2590 >"$tmp/all-canceled.out" 2>&1
 rc=$?
 ! grep -q '^=== log:' "$tmp/all-canceled.out" || rc="$rc, cancelled steps' logs printed"
 check "all-canceled pipeline is killed" 4 "ci-watch: VERDICT=4 " "$rc" "$tmp/all-canceled.out"
+
+# 7. --start (teleop pipeline 2653 ran at daf58e3f, HEAD elsewhere): the watch is
+#    labelled with the created pipeline's commit, never the cwd's HEAD.
+FAKE_PIPELINE=done "$script" --start main >"$tmp/start.out" 2>&1
+rc=$?
+grep -q '^watching .*/pipeline/2653 (sha daf58e3f)' "$tmp/start.out" || rc="$rc, watch not labelled with the pipeline's commit"
+check "--start labels the created pipeline's commit" 0 "ci-watch: VERDICT=0 " "$rc" "$tmp/start.out"
+
+# 8. --start whose create returns no pipeline: no verdict, never a watch of HEAD's pipeline.
+FAKE_PIPELINE=create-fails "$script" --start main >"$tmp/create-fails.out" 2>&1
+rc=$?
+! grep -q '^watching ' "$tmp/create-fails.out" || rc="$rc, watched a pipeline after a failed create"
+[ "$rc" = 2 ] && echo "ok   failed create is no verdict (exit 2)" || { echo "FAIL failed create: got $rc"; sed 's/^/     | /' "$tmp/create-fails.out"; fails=$((fails + 1)); }
 
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 exit "$fails"

@@ -214,6 +214,9 @@ sha=${SHA_ARG:-$(git rev-parse HEAD)}
 pipeline=$PIPELINE_ARG
 if [ -n "$START_BRANCH" ]; then
   pipeline=$(wp pipeline create --branch "$START_BRANCH" "$REPO" | awk 'NR>1 {print $1; exit}')
+  # A failed create must not fall through to the HEAD lookup below, which
+  # would watch some other pipeline.
+  [ -n "$pipeline" ] || { echo "ci-watch: pipeline create on $START_BRANCH returned no pipeline number" >&2; exit 2; }
 fi
 
 # Newest pipeline whose commit is $sha. `pipeline ls` prints a table; the
@@ -239,13 +242,21 @@ for p in json.load(sys.stdin):
 fi
 [ -n "$pipeline" ] || { echo "no pipeline found for $sha" >&2; exit 2; }
 
-# A pipeline given BY NUMBER names its own commit — label the watch with that,
-# never with the cwd's HEAD. (2026-08-23: pipeline 826 was printed as the cwd's
-# 24f6787a while it had actually built 6d97b3ca; a PR was merged on the wrong
-# verdict because of that label.)
-if [ -n "$PIPELINE_ARG" ]; then
-  sha=$(curl -fsS -H "Authorization: Bearer $WOODPECKER_TOKEN"     "$WOODPECKER_SERVER/api/repos/$REPO/pipelines/$pipeline" |
-    python3 -c 'import json,sys; print(json.load(sys.stdin)["commit"])') || sha="unknown"
+# A pipeline given BY NUMBER or created by --start names its own commit — label
+# the watch with that, never with the cwd's HEAD. (2026-08-23: pipeline 826 was
+# printed as the cwd's 24f6787a while it had actually built 6d97b3ca; a PR was
+# merged on the wrong verdict because of that label.)
+# A just-created pipeline can 404 for a moment, so the read is retried.
+if [ -n "$PIPELINE_ARG" ] || [ -n "$START_BRANCH" ]; then
+  sha=unknown
+  for _ in 1 2 3 4 5; do
+    if c=$(curl -fsS -H "Authorization: Bearer $WOODPECKER_TOKEN" \
+             "$WOODPECKER_SERVER/api/repos/$REPO/pipelines/$pipeline" 2>/dev/null |
+           python3 -c 'import json,sys; print(json.load(sys.stdin)["commit"])' 2>/dev/null) &&
+       [ -n "$c" ]; then sha=$c; break; fi
+    [ -n "$START_BRANCH" ] || break
+    sleep 2
+  done
 fi
 
 echo "watching $WOODPECKER_SERVER/repos/$REPO/pipeline/$pipeline (sha ${sha:0:8}), timeout $TIMEOUT"
