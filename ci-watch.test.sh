@@ -25,6 +25,11 @@ T
       exit 0 ;;
   esac
 fi
+if [ "$FAKE_PIPELINE" = all-canceled ] && [ "$1 $2" = "pipeline ps" ]; then
+  printf '%s\n' '3|clone|canceled' '4|fmt (cargo fmt --all --check)|canceled' \
+    '20|clone|canceled' '21|test (cargo test --workspace --locked)|canceled'
+  exit 0
+fi
 [ "$1 $2" = "pipeline ps" ] || { echo "fake woodpecker-cli: unhandled $*" >&2; exit 9; }
 late=pending; [ "$FAKE_PIPELINE" = done ] && late=success
 cat <<T
@@ -60,6 +65,7 @@ fi
 status=running; [ "$FAKE_PIPELINE" = done ] && status=success
 case "$*" in
   *"/pipelines/2441"*)    echo '{"number":2441,"commit":"97a3686f0000","status":"killed","workflows":[{"name":"build","state":"killed","error":"Canceled"},{"name":"test","state":"failure","error":null}]}' ;;
+  *"/pipelines/2590"*)    echo '{"number":2590,"commit":"feed5f330000","status":"canceled","workflows":[{"name":"build","state":"skipped"},{"name":"test","state":"skipped"}]}' ;;
   *"/pipelines?perPage"*) echo "[{\"number\":2177,\"commit\":\"8c957a7f0000\",\"status\":\"$status\"}]" ;;
   *"/pipelines/2177"*)    echo "{\"number\":2177,\"commit\":\"8c957a7f0000\",\"status\":\"$status\"}" ;;
   *) echo "fake curl: unhandled $*" >&2; exit 22 ;;
@@ -109,6 +115,13 @@ grep -q '^workflow test finished failure before the kill$' "$tmp/killed-red.out"
   grep -q 'fake log of step 20' "$tmp/killed-red.out" &&
   ! grep -q 'fake log of step 9' "$tmp/killed-red.out" || rc="$rc, workflow verdict or failed-step log missing"
 check "killed after a red workflow is red" 1 "ci-watch: VERDICT=1 " "$rc" "$tmp/killed-red.out"
+
+# 6. Superseded before any workflow ran (collector-rs pipeline 2590: status `canceled`,
+#    every workflow `skipped`, every step `canceled`): KILLED, never RED, no logs.
+FAKE_PIPELINE=all-canceled "$script" 2590 >"$tmp/all-canceled.out" 2>&1
+rc=$?
+! grep -q '^=== log:' "$tmp/all-canceled.out" || rc="$rc, cancelled steps' logs printed"
+check "all-canceled pipeline is killed" 4 "ci-watch: VERDICT=4 " "$rc" "$tmp/all-canceled.out"
 
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 exit "$fails"

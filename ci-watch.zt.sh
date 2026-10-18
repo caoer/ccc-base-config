@@ -306,8 +306,13 @@ fi
 # So ask the PIPELINE about itself. The step table is a report ABOUT the pipeline;
 # the API's `.status` IS the pipeline.
 #
-# FAIL-CLOSED: if that query fails, or says anything other than `killed`, rc stays 1.
-# A broken lookup must never downgrade a real RED.
+# A pipeline cut off by a kill reports `.status` `killed` when a workflow had already
+# started, and `canceled` when the kill came first: then every step reads `canceled`
+# and every workflow `skipped` (collector-rs pipelines 2590 and 2579, superseded on
+# main). Both are KILLED.
+#
+# FAIL-CLOSED: if that query fails, or says anything other than `killed` or
+# `canceled`, rc stays 1. A broken lookup must never downgrade a real RED.
 #
 # A kill does not erase what already finished. Woodpecker kills the PIPELINE when a
 # newer commit arrives, but a workflow that completed before that keeps its own
@@ -321,12 +326,14 @@ if [ "$rc" -ne 0 ]; then
     "$WOODPECKER_SERVER/api/repos/$REPO/pipelines/$pipeline" 2>/dev/null) || pjson=""
   pstatus=$(printf '%s' "$pjson" |
     python3 -c 'import json,sys; print(json.load(sys.stdin).get("status",""))' 2>/dev/null) || pstatus=""
-  if [ "$pstatus" = "killed" ]; then
+  if [ "$pstatus" = "killed" ] || [ "$pstatus" = "canceled" ]; then
     # name|state of every workflow that finished on its own (not cut by the kill).
+    # `skipped` carries no verdict, and it is what a kill leaves on a workflow
+    # that never started.
     finished=$(printf '%s' "$pjson" | python3 -c '
 import json,sys
 for w in json.load(sys.stdin).get("workflows") or []:
-    if w.get("state") not in ("killed", "canceled", "pending", "running", "blocked"):
+    if w.get("state") not in ("killed", "canceled", "skipped", "pending", "running", "blocked"):
         print("%s|%s" % (w.get("name", "?"), w.get("state", "?")))
 ' 2>/dev/null) || finished="?|unreadable"
     red_wf=""
