@@ -27,7 +27,7 @@ src="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 # repo and undo their deletion, silently and in the direction nobody watches.
 # MERIDIAN.md is absent on purpose: it declares this root to the local engine
 # and is machine-local.
-FILES=(launch.mjs GUIDE.md fleet.md launch.test.mjs .gitignore)
+FILES=(launch.mjs GUIDE.md fleet.md undercover-group.md launch.test.mjs .gitignore)
 DIRS=(launch mcp)
 
 # The pages compose by symlink, so kind is part of the comparison: a link and a

@@ -10,6 +10,7 @@ launch/` is the whole vocabulary and `explain` prints the list it walked.
 | `launch/*.md` | One agent definition per launch kind; the body, verbatim, is the system prompt. Symlinks live here too. |
 | `mcp/*.md` | One MCP server each: the gate in frontmatter, the server object in the body's first JSON fence. |
 | `fleet.md` | The fleet-wide deny list — one key, applied to every launch on every machine. |
+| `undercover-group.md` | The undercover-group profiles — one key, `profiles`; read by the send verbs, which warn on a send to a member seat that is not undercover or not waited on. |
 | `launch.mjs` | The launcher: `explain`, `check`, and the render the wrappers call. |
 | `launch.test.mjs` | `node --test launch.test.mjs` — the same file runs under `bun test`. |
 
