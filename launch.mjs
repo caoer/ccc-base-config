@@ -478,7 +478,9 @@ export const SEAT_SERVER = "ccc";
 
 /** The session id the caller's argv names, if any — the seat's actor at mint:
  *  --session-id <id> fixes it, --resume <id> / -r <id> continues it. A bare
- *  --resume (the picker) names none; the face rebinds on the first write. */
+ *  --resume (the picker) names none: the mint takes a fresh 8-hex id, and the
+ *  harness's SessionStart hook keys the seat file to the session picked
+ *  (seatfile.Follow, by the launch's pid). */
 export function seatActorHint(raw = []) {
   for (let i = 0; i < raw.length; i++) {
     const a = raw[i];
