@@ -30,6 +30,26 @@ src="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 FILES=(launch.mjs GUIDE.md fleet.md undercover-group.md launch.test.mjs .gitignore)
 DIRS=(launch mcp)
 
+# Entries under DIRS that stay on this checkout and never ship — a page or an
+# MCP registration bound to one machine or one private lane. rsync excludes
+# them, so the bundle never carries them and the dry-run does not list them.
+PRIVATE=(
+  launch/@glm-bigmodel-cos.worker.md
+  launch/@glm-flash-bigmodel-cos.worker.md
+  mcp/rea.md
+  mcp/ida-mcp.json
+)
+
+# Sets ex to rsync's excludes for one of DIRS: its PRIVATE entries, anchored there.
+excludes() {
+  ex=()
+  local p
+  for p in "${PRIVATE[@]}"; do
+    [[ $p == "$1"/* ]] && ex+=("--exclude=/${p#"$1"/}")
+  done
+  return 0
+}
+
 # The pages compose by symlink, so kind is part of the comparison: a link and a
 # regular file holding the link's destination are the same bytes and different
 # things. `cmp` alone reads them as equal, which is how a flattened link ships
@@ -88,9 +108,10 @@ if ((dry)); then
   done
   for d in "${DIRS[@]}"; do
     [[ -d "$src/$d" ]] || continue
+    excludes "$d"
     # -c: compare content, so a mtime skew is not reported as a difference
     # -l: a symlink is a symlink on both sides, never a copy and never skipped
-    while read -r line; do echo "$d/: $line"; changed=1; done < <(rsync -rlcin --delete "$src/$d/" "$dst/$d/" | grep -v '^\.d')
+    while read -r line; do echo "$d/: $line"; changed=1; done < <(rsync -rlcin --delete ${ex[@]+"${ex[@]}"} "$src/$d/" "$dst/$d/" | grep -v '^\.d')
   done
   ((changed)) || echo "already in sync"
   exit 0
@@ -111,7 +132,8 @@ for f in "${FILES[@]}"; do
 done
 for d in "${DIRS[@]}"; do
   [[ -d "$src/$d" ]] || continue
-  rsync -rlc --delete "$src/$d/" "$dst/$d/"
+  excludes "$d"
+  rsync -rlc --delete ${ex[@]+"${ex[@]}"} "$src/$d/" "$dst/$d/"
 done
 
 # It has to pass where it now lives, not only where it was written.
