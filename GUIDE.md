@@ -58,7 +58,7 @@ that page's roleless prompt, because it has no `.leader` variant.
 model: claude-sonnet-5[1m]
 effort: medium
 tools: [Bash, Read, AskUserQuestion]
-mcpServers: [ccc-statusd]
+mcpServers: [ccc]
 ---
 You are a watcher agent: woken, act once, end the turn.
 ```
@@ -95,7 +95,7 @@ drops the server with a trace line; a name with no file is a `check` error and
 a launch warning.
 
 `check` prices every page — `launch/x.md: 12224 bytes, 3798 tokens`, the token
-column only when `ccc-statusd` is on PATH — and warns when the definition's
+column only when `cccd` (or `ccc-statusd`) is on PATH — and warns when the definition's
 JSON passes 128 KB, Linux's per-argv-element limit, which only the argv
 fallback can hit.
 
@@ -187,7 +187,7 @@ foreign endpoint.
 
 ## Reading the pages as records
 
-`$UCC_HOME/config` is the `ucc-config` root of the ccc-statusd MCP:
+`$UCC_HOME/config` is the `ucc-config` root of the `ccc` MCP:
 
 ```
 read ref="ucc-config:launch/default.worker.md"
