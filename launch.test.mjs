@@ -728,6 +728,35 @@ describe("unit 4: the definition and the wire", () => {
     assert.match(out.trace.join("\n"), /normalized to claude-opus-4-8\[1m\]/);
   });
 
+  test("[1m] pin: a bare grok-4.6 is emitted as grok-4.6[1m] so it cannot last-win a 200k window", (t) => {
+    const dir = configFixture();
+    cleanup(t, dir);
+    const env = { ANTHROPIC_MODEL: "grok-4.6[1m]", ANTHROPIC_BASE_URL: "http://127.0.0.1:18765" };
+    const out = render({ model: "grok-4.6", role: "worker", profile: "grok" }, { dir, env });
+    assert.equal(flag(out.argv, "--model"), "grok-4.6[1m]");
+    assert.equal(out.model_matched, true);
+    assert.equal("model" in definitionOf(out)["default.worker"], false);
+    assert.match(out.trace.join("\n"), /normalized to grok-4\.6\[1m\]/);
+  });
+
+  test("[1m] pin: argv --model grok-4.6 is sifted and normalized", (t) => {
+    const dir = configFixture();
+    cleanup(t, dir);
+    const env = { ANTHROPIC_MODEL: "grok-4.6[1m]", ANTHROPIC_BASE_URL: "http://127.0.0.1:18765" };
+    const out = render({ role: "worker", profile: "grok", argv: ["--model", "grok-4.6", "do the task"] }, { dir, env });
+    assert.equal(flag(out.argv, "--model"), "grok-4.6[1m]");
+    assert.equal(out.model_matched, true);
+  });
+
+  test("[1m] pin: an already-suffixed grok id is not re-emitted", (t) => {
+    const dir = configFixture();
+    cleanup(t, dir);
+    const env = { ANTHROPIC_MODEL: "grok-4.6[1m]", ANTHROPIC_BASE_URL: "http://127.0.0.1:18765" };
+    const out = render({ model: "grok-4.6[1m]", role: "worker", profile: "grok" }, { dir, env });
+    assert.equal(out.argv.includes("--model"), false);
+    assert.equal(out.model_matched, false);
+  });
+
   test("pin: an explicit model the profile's ANTHROPIC_MODEL cannot serve refuses", (t) => {
     const dir = configFixture();
     cleanup(t, dir);
@@ -750,7 +779,10 @@ describe("unit 4: the definition and the wire", () => {
     cleanup(t, dir);
     const out = render({ model: "gpt-6-astra", role: "worker", profile: "codex" }, { dir, env: { ANTHROPIC_MODEL: "gpt-6-astra[1m]" } });
     assert.equal("model" in definitionOf(out)["default.worker"], false);
+    assert.equal(flag(out.argv, "--model"), "gpt-6-astra[1m]");
+    assert.equal(out.model_matched, true);
     assert.match(out.trace.join("\n"), /pin: ANTHROPIC_MODEL=gpt-6-astra\[1m\]/);
+    assert.match(out.trace.join("\n"), /normalized to gpt-6-astra\[1m\]/);
   });
 
   test("pin: with no explicit model the page's model is omitted from the definition", (t) => {
@@ -1120,7 +1152,8 @@ describe("unit 4: refusals come before every shortcut", () => {
     const ctx = { role: "worker", profile: "codex", argv: ["--model", "gpt-6-astra", "-p", "hi"] };
     const first = render(ctx, { dir, env: pinned });
     assert.equal(flag(first.argv, "--agent"), "default.worker");
-    // model_matched is false under the pin, so the wrapper keeps its own --model
+    assert.equal(first.model_matched, true);
+    // a second pass sees the already-rendered --agent and emits nothing
     const second = render({ ...ctx, argv: [...first.argv, ...ctx.argv] }, { dir, env: pinned });
     assert.deepEqual(second.argv, []);
   });

@@ -808,8 +808,23 @@ export function render(ctx = {}, world = {}) {
   let model = asked ?? (front.model === undefined ? undefined : String(front.model));
   let modelIsExplicit = asked !== undefined;
   let effort = front.effort === undefined ? undefined : String(front.effort);
+  // When the pin is a 1M id and the caller asked the same id without [1m],
+  // emit the pin so last-wins cannot land the bare spelling (a 200k window).
+  // The wrapper strips the caller's --model only when model_matched is set.
+  let emitNormalized = undefined;
 
   if (model !== undefined && pin !== "") {
+    if (
+      asked !== undefined &&
+      pin.includes(ONE_M) &&
+      !String(asked).includes(ONE_M) &&
+      bareId(asked) === bareId(pin)
+    ) {
+      emitNormalized = pin;
+      trace.push(
+        `model ${explicitModel}: normalized to ${pin} (this pin is the 1M id; ${explicitModel} without [1m] reports 200k)`,
+      );
+    }
     trace.push(`pin: ANTHROPIC_MODEL=${pin} — the harness reads it natively; no model in the definition`);
     model = undefined;
     modelIsExplicit = false;
@@ -888,6 +903,7 @@ export function render(ctx = {}, world = {}) {
   const argv = definitionArgv(name, agent, world.pluginRoot, trace);
   if (seatConfig !== undefined) argv.push(`--mcp-config=${seatConfig}`);
   if (modelIsExplicit && model !== undefined) argv.push("--model", model); // siftArgv removed the caller's own
+  if (emitNormalized !== undefined) argv.push("--model", emitNormalized);
   if (effort !== undefined && mine("effort")) argv.push("--effort", effort);
 
   // ── the seal: lifted for a known model outside the Fable family; every other
