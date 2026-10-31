@@ -745,13 +745,17 @@ export function render(ctx = {}, world = {}) {
   const baseUrl = String(env.ANTHROPIC_BASE_URL ?? "").trim();
   const foreign = baseUrl !== "" && !baseUrl.includes("anthropic.com");
 
-  // Pin: the profile's endpoint serves exactly one id. Any other explicitly
-  // requested id is REFUSED rather than silently replaced — degrading here
-  // would land the wrong model (zt-queue #17).
-  if (asked !== undefined && pin !== "" && bareId(asked) !== bareId(pin)) {
+  // Pin: ANTHROPIC_MODEL is the profile's default id, and UCC_SERVES_MODELS
+  // (comma-separated) names the other ids its endpoint serves — grok's bridge
+  // forwards any grok-* id upstream. Any other explicitly requested id is
+  // REFUSED rather than silently replaced — degrading here would land the
+  // wrong model (zt-queue #17).
+  const served = pin === "" ? [] : [pin, ...String(env.UCC_SERVES_MODELS ?? "").split(",").map((s) => s.trim()).filter(Boolean)];
+  const alternate = asked !== undefined && pin !== "" && bareId(asked) !== bareId(pin);
+  if (alternate && !served.some((s) => bareId(s) === bareId(asked))) {
     throw new Refusal(
       `--model ${explicitModel} cannot be served: profile '${ctx.profile ?? "?"}' pins ANTHROPIC_MODEL=${pin}, ` +
-        `whose endpoint serves only ${pin}. ` +
+        `whose endpoint serves only ${served.join(", ")}. ` +
         `Fix: drop --model to accept ${pin} (request reasoning effort separately with --effort <low|medium|high|xhigh|max>), ` +
         `or launch from a profile that serves ${asked} — for claude ids pick a claude-account profile ` +
         `(e.g. env -u UCC_PROFILE ucc-auto, or a ucc-<claude-profile> wrapper).`,
@@ -824,6 +828,11 @@ export function render(ctx = {}, world = {}) {
       trace.push(
         `model ${explicitModel}: normalized to ${pin} (this pin is the 1M id; ${explicitModel} without [1m] reports 200k)`,
       );
+    } else if (alternate) {
+      // A served alternate carries the pin's window marker: the same endpoint
+      // serves both, so a bare spelling would report 200k beside a 1M pin.
+      emitNormalized = pin.includes(ONE_M) && !String(asked).includes("[") ? asked + ONE_M : asked;
+      trace.push(`model ${explicitModel}: served beside the pin (UCC_SERVES_MODELS) — emitting ${emitNormalized}`);
     }
     trace.push(`pin: ANTHROPIC_MODEL=${pin} — the harness reads it natively; no model in the definition`);
     model = undefined;

@@ -105,7 +105,8 @@ fallback can hit.
 |---|---|---|
 | `--launch NAME` and no `NAME.md` / `NAME.<role>.md` | **refused, exit 2** | stderr `launch-config: no launch kind` |
 | `-p` / `--print` and the model (explicit `--model`, else the page's) is Fable — `fable` or `claude-fable-*` | **refused, exit 2** — Fable runs only as a seat; `UCC_FABLE_PRINT=1` in the seat env admits a run the user asked for | stderr `REFUSED — print mode on …` |
-| explicit `--model` differs from the profile's `ANTHROPIC_MODEL` | **refused, exit 2** — never a silently replaced model; ask for effort with `--effort` instead | stderr `REFUSED — --model … cannot be served` |
+| explicit `--model` differs from the profile's `ANTHROPIC_MODEL` and is not in its `UCC_SERVES_MODELS` | **refused, exit 2** — never a silently replaced model; ask for effort with `--effort` instead | stderr `REFUSED — --model … cannot be served` |
+| explicit `--model` named in the profile's `UCC_SERVES_MODELS` (comma-separated ids the endpoint serves beside the pin, e.g. grok's `grok-4.5,grok-4.7`) | emitted as `--model`, carrying the pin's `[1m]` when the pin has it; the pin stays the default | trace `served beside the pin` |
 | profile pins `ANTHROPIC_MODEL` | the page's `model` is dropped; the harness reads the pin natively | trace `pin:` |
 | `ANTHROPIC_BASE_URL` set and not `anthropic.com` | the page's model and effort are dropped (the profile's `settings.json` effortLevel keeps its own); an explicit `--effort` still wins; no `ANTHROPIC_MODEL` warns `provision one` | trace `foreign endpoint:` |
 | explicit claude id without `[1m]` | `[1m]` appended — without it the session reports a 200k window | trace `normalized to` |

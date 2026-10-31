@@ -774,6 +774,36 @@ describe("unit 4: the definition and the wire", () => {
     );
   });
 
+  test("pin: an id UCC_SERVES_MODELS names is served beside the pin, with the pin's [1m]", (t) => {
+    const dir = configFixture();
+    cleanup(t, dir);
+    const env = {
+      ANTHROPIC_MODEL: "grok-4.6[1m]",
+      ANTHROPIC_BASE_URL: "http://127.0.0.1:18765",
+      UCC_SERVES_MODELS: "grok-4.5, grok-4.7",
+    };
+    for (const asked of ["grok-4.7", "grok-4.7[1m]", "grok-4.5"]) {
+      const out = render({ role: "worker", profile: "grok", argv: ["--model", asked, "do the task"] }, { dir, env });
+      assert.equal(flag(out.argv, "--model"), `${asked.replace("[1m]", "")}[1m]`, asked);
+      assert.equal(out.model_matched, true, asked);
+      assert.equal("model" in definitionOf(out)["default.worker"], false, asked);
+    }
+  });
+
+  test("pin: an id outside the pin and UCC_SERVES_MODELS still refuses, naming every served id", (t) => {
+    const dir = configFixture();
+    cleanup(t, dir);
+    const env = { ANTHROPIC_MODEL: "grok-4.6[1m]", UCC_SERVES_MODELS: "grok-4.5,grok-4.7" };
+    assert.throws(
+      () => render({ model: "grok-4.8", role: "worker", profile: "grok" }, { dir, env }),
+      (e) => {
+        assert.ok(e instanceof Refusal);
+        assert.match(e.message, /serves only grok-4\.6\[1m\], grok-4\.5, grok-4\.7/);
+        return true;
+      },
+    );
+  });
+
   test("pin: a matching explicit model is served, and the page model is not re-emitted", (t) => {
     const dir = configFixture();
     cleanup(t, dir);
