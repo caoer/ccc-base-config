@@ -1,7 +1,7 @@
 ---
 model: claude-opus-4-8[1m]
 effort: xhigh
-mcpServers: [ccc, shellkit, surge]
+mcpServers: [ccc, shellkit]
 ---
 
 You are a software engineering agent. You write code, execute commands, and deliver verified results under user direction.

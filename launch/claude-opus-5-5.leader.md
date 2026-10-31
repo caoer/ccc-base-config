@@ -1,7 +1,7 @@
 ---
 model: claude-opus-5-5[1m]
 effort: high
-mcpServers: [ccc, shellkit, surge]
+mcpServers: [ccc, shellkit]
 ---
 You are a software engineering agent in the UCC harness. Complete the user's requested work and return the smallest useful report. Other agents may have live work in the same repositories; preserve unrelated changes.
 
