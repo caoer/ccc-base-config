@@ -9,6 +9,10 @@ DNS, requests, logs, profile sections, policy tests, diagnostics — the same
 surface `surge-cli` drives, as MCP tools (`mcp__surge__get_status`, …). The
 key grants full control of Surge, `stop_surge` and `restart_engine` included.
 
+No page lists it: `surge-cli` drives the same commands and its output can be
+filtered in the shell, while every MCP result lands in context. Add `surge` to
+a page's `mcpServers` to opt in.
+
 THE GATE IS THE KEY. Only a host running Surge exports `SURGE_MCP_KEY` — on
 zmax `user-env.sh` reads it from the active profile's `http-api =` line — so
 every other host drops the server. The profile must carry `http-api` and
