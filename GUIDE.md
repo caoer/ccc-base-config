@@ -224,4 +224,6 @@ On a host, the **installer runs first and `ucc-cli config update` second**:
 endpoint efforts live on the profile plane (`settings.json`), so a host that
 takes the pages without the installer runs codex, grok, kimi and deepseek at
 the harness default effort. New launches use the updated files; running
-sessions keep the prompt they were born with.
+sessions keep the prompt and MCP servers they were born with. A running session
+takes a change by restarting itself in its pane: `cccd session restart --delay 3
+"<what to continue>"` — it resumes the same transcript under the new pages.
